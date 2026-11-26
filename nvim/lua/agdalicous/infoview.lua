@@ -1,6 +1,6 @@
 -- The infoview: a side window showing what the server reports for the
 -- cursor position in the most recently focused Agda buffer.
-local lsp = require("agdalicous.lsp")
+local lsp = require("agdalicious.lsp")
 
 local M = {}
 
@@ -48,7 +48,7 @@ function M.update()
   local buf = vim.api.nvim_get_current_buf()
   local client = lsp.client(buf)
   if not client then
-    render({ "agdalicous-lsp is not running for this buffer." })
+    render({ "agdalicious-lsp is not running for this buffer." })
     return
   end
   local params = vim.lsp.util.make_position_params(0, client.offset_encoding)
@@ -69,9 +69,9 @@ function M.open()
     state.buf = vim.api.nvim_create_buf(false, true)
     vim.bo[state.buf].filetype = "agdainfo"
     vim.bo[state.buf].bufhidden = "hide"
-    vim.api.nvim_buf_set_name(state.buf, "agdalicous://infoview")
+    vim.api.nvim_buf_set_name(state.buf, "agdalicious://infoview")
   end
-  local width = require("agdalicous").config.infoview.width
+  local width = require("agdalicious").config.infoview.width
   state.win = vim.api.nvim_open_win(state.buf, false, { split = "right", width = width })
   vim.wo[state.win].number = false
   vim.wo[state.win].relativenumber = false
@@ -97,7 +97,7 @@ end
 --- Keep the infoview in sync with the cursor in `buf`.
 function M.attach(buf)
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "BufEnter" }, {
-    group = vim.api.nvim_create_augroup("agdalicous.infoview." .. buf, { clear = true }),
+    group = vim.api.nvim_create_augroup("agdalicious.infoview." .. buf, { clear = true }),
     buffer = buf,
     callback = M.update,
   })

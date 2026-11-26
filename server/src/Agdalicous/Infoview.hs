@@ -17,7 +17,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Language.LSP.Protocol.Types (Position, TextDocumentIdentifier)
 
--- | Name of the custom LSP method. Keep in sync with @nvim/lua/agdalicous/infoview.lua@.
+-- | Name of the custom LSP method. Keep in sync with @nvim/lua/agdalicious/infoview.lua@.
 infoviewMethod :: Text
 infoviewMethod = "agda/infoview"
 

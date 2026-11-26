@@ -1,5 +1,5 @@
 cabal-version:   3.0
-name:            agdalicous-lsp
+name:            agdalicious-lsp
 version:         0.1.0.0
 synopsis:        Language server for Agda with an infoview protocol
 license:         MIT
@@ -27,11 +27,11 @@ library
     , lsp-types  >=2.3 && <2.4
     , text
 
-executable agdalicous-lsp
+executable agdalicious-lsp
   import:         shared
   hs-source-dirs: app
   main-is:        Main.hs
   ghc-options:    -threaded -rtsopts
   build-depends:
-    , agdalicous-lsp
+    , agdalicious-lsp
     , base

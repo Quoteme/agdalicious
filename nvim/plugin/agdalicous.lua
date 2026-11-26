@@ -1,10 +1,10 @@
-if vim.g.loaded_agdalicous then
+if vim.g.loaded_agdalicious then
   return
 end
-vim.g.loaded_agdalicous = true
+vim.g.loaded_agdalicious = true
 
 vim.api.nvim_create_user_command("AgdaInfo", function(opts)
-  local infoview = require("agdalicous.infoview")
+  local infoview = require("agdalicious.infoview")
   if opts.args == "open" then
     infoview.open()
   elseif opts.args == "close" then

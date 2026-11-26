@@ -1,8 +1,8 @@
-# agdalicous
+# agdalicious
 
 Agda support for neovim, modelled on lean.nvim:
 
-- `server/`: **agdalicous-lsp**, a Haskell language server. It does the actual work: loading files in Agda, goals, diagnostics.
+- `server/`: **agdalicious-lsp**, a Haskell language server. It does the actual work: loading files in Agda, goals, diagnostics.
 - `nvim/`: a thin Lua plugin. It starts the server, shows the infoview (`:AgdaInfo`) and expands `\`-abbreviations as you type (`\lambda` → `λ`, `\to` → `→`, `\bN` → `ℕ`, ...).
 
 Both are skeletons for now. The infoview request (`agda/infoview`) returns placeholder text.
@@ -12,16 +12,16 @@ Both are skeletons for now. The infoview request (`agda/infoview`) returns place
 ```sh
 nix develop                              # ghc, cabal, hls, agda + stdlib, neovim, lua-ls
 (cd server && cabal build)
-nix build .#agdalicous-lsp               # the server
-nix build .#agdalicous-nvim              # the plugin, as a vim plugin derivation
+nix build .#agdalicious-lsp               # the server
+nix build .#agdalicious-nvim              # the plugin, as a vim plugin derivation
 nix run .#nvim -- test/Example.agda      # throwaway neovim with both wired up
 ```
 
 ## Using the plugin
 
 ```lua
-require("agdalicous").setup({
-  lsp = { cmd = { "agdalicous-lsp" } },
+require("agdalicious").setup({
+  lsp = { cmd = { "agdalicious-lsp" } },
   unicode = { extra = { ["bZ"] = "ℤ" } },
 })
 ```
@@ -30,7 +30,7 @@ require("agdalicous").setup({
 
 ### Unicode input
 
-An abbreviation is replaced as soon as it can't be extended any further (`\lambda`). An ambiguous one, such as `\to` (which could still become `\top`), is replaced when the next character rules out the longer ones, or when you leave insert mode. The table is in `nvim/lua/agdalicous/abbreviations.lua`.
+An abbreviation is replaced as soon as it can't be extended any further (`\lambda`). An ambiguous one, such as `\to` (which could still become `\top`), is replaced when the next character rules out the longer ones, or when you leave insert mode. The table is in `nvim/lua/agdalicious/abbreviations.lua`.
 
 ## Protocol
 

@@ -1,6 +1,6 @@
 local M = {}
 
-M.name = "agdalicous"
+M.name = "agdalicious"
 
 function M.start(buf, config)
   return vim.lsp.start({
@@ -12,7 +12,7 @@ function M.start(buf, config)
   }, { bufnr = buf })
 end
 
---- The agdalicous client attached to `buf`, if any.
+--- The agdalicious client attached to `buf`, if any.
 function M.client(buf)
   return vim.lsp.get_clients({ bufnr = buf, name = M.name })[1]
 end

@@ -27,7 +27,7 @@ run =
       { parseConfig = \cfg _ -> Right cfg
       , onConfigChange = const (pure ())
       , defaultConfig = ()
-      , configSection = "agdalicous"
+      , configSection = "agdalicious"
       , doInitialize = \env _req -> pure (Right env)
       , staticHandlers = const handlers
       , interpretHandler = \env -> Iso (runLspT env) liftIO
@@ -47,7 +47,7 @@ handlers :: Handlers (LspM ())
 handlers =
   mconcat
     [ notificationHandler SMethod_Initialized $ \_ ->
-        logInfo "agdalicous-lsp initialized"
+        logInfo "agdalicious-lsp initialized"
     , notificationHandler SMethod_TextDocumentDidOpen $ \msg ->
         -- TODO: load the file in Agda
         logInfo ("opened " <> getUri (msg ^. L.params . L.textDocument . L.uri))
@@ -80,7 +80,7 @@ infoview InfoviewParams {textDocument, position} =
     InfoviewResult
       { goals = []
       , messages =
-          [ "agdalicous-lsp: infoview not implemented yet"
+          [ "agdalicious-lsp: infoview not implemented yet"
           , "file: " <> getUri (textDocument ^. L.uri)
           , "line " <> tshow (position ^. L.line + 1) <> ", col " <> tshow (position ^. L.character + 1)
           ]

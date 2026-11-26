@@ -1,11 +1,11 @@
--- agdalicous: thin neovim front-end for agdalicous-lsp.
+-- agdalicious: thin neovim front-end for agdalicious-lsp.
 -- The plugin only (1) starts the server, (2) renders the infoview and
 -- (3) expands \-abbreviations. Everything else is the server's job.
 local M = {}
 
 M.config = {
   lsp = {
-    cmd = { "agdalicous-lsp" },
+    cmd = { "agdalicious-lsp" },
   },
   infoview = {
     width = 50,
@@ -23,16 +23,16 @@ local patterns = { "*.agda", "*.lagda", "*.lagda.*" }
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
-  local group = vim.api.nvim_create_augroup("agdalicous", { clear = true })
+  local group = vim.api.nvim_create_augroup("agdalicious", { clear = true })
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
     group = group,
     pattern = patterns,
     callback = function(ev)
-      require("agdalicous.lsp").start(ev.buf, M.config.lsp)
+      require("agdalicious.lsp").start(ev.buf, M.config.lsp)
       if M.config.unicode.enabled then
-        require("agdalicous.unicode").attach(ev.buf, M.config.unicode)
+        require("agdalicious.unicode").attach(ev.buf, M.config.unicode)
       end
-      require("agdalicous.infoview").attach(ev.buf)
+      require("agdalicious.infoview").attach(ev.buf)
     end,
   })
 

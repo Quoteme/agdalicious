@@ -7,7 +7,7 @@
 local M = {}
 
 local function build(config)
-  local abbrevs = vim.tbl_extend("force", require("agdalicous.abbreviations"), config.extra or {})
+  local abbrevs = vim.tbl_extend("force", require("agdalicious.abbreviations"), config.extra or {})
   -- every proper prefix of every key; "is something longer still possible?"
   local prefixes = {}
   for key in pairs(abbrevs) do
@@ -66,7 +66,7 @@ function M.attach(buf, config)
     end
   end
 
-  local group = vim.api.nvim_create_augroup("agdalicous.unicode." .. buf, { clear = true })
+  local group = vim.api.nvim_create_augroup("agdalicious.unicode." .. buf, { clear = true })
   vim.api.nvim_create_autocmd("TextChangedI", { group = group, buffer = buf, callback = on_change })
   vim.api.nvim_create_autocmd("InsertLeave", { group = group, buffer = buf, callback = on_leave })
 end
