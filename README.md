@@ -19,6 +19,27 @@ nix run .#nvim -- test/Example.agda      # throwaway neovim with both wired up
 
 ## Using the plugin
 
+With [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{
+  "Quoteme/agdalicious",
+  ft = "agda",
+  config = function(plugin, opts)
+    -- the neovim plugin lives in the repository's nvim/ directory
+    vim.opt.rtp:append(plugin.dir .. "/nvim")
+    vim.cmd.runtime("plugin/agdalicious.lua")
+    require("agdalicious").setup(opts)
+  end,
+  opts = {
+    lsp = { cmd = { "agdalicious-lsp" } },
+    unicode = { extra = { ["bZ"] = "ℤ" } },
+  },
+}
+```
+
+Or call `setup` yourself:
+
 ```lua
 require("agdalicious").setup({
   lsp = { cmd = { "agdalicious-lsp" } },
