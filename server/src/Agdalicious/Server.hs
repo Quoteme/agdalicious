@@ -4,12 +4,12 @@
 -- diagnostics) is meant to live here, so editor plugins stay thin.
 --
 -- Files are type-checked by one @agda --interaction-json@ process
--- ("Agdalicous.Agda"); 'load' turns its errors and warnings into diagnostics.
-module Agdalicous.Server (run) where
+-- ("Agdalicious.Agda"); 'load' turns its errors and warnings into diagnostics.
+module Agdalicious.Server (run) where
 
-import Agdalicous.Agda (Agda)
-import Agdalicous.Agda qualified as Agda
-import Agdalicous.Infoview
+import Agdalicious.Agda (Agda)
+import Agdalicious.Agda qualified as Agda
+import Agdalicious.Infoview
 import Control.Concurrent (forkIO)
 import Control.Lens ((^.), (^..))
 import Control.Monad (void)

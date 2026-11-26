@@ -17,9 +17,9 @@ library
   import:          shared
   hs-source-dirs:  src
   exposed-modules:
-    Agdalicous.Agda
-    Agdalicous.Infoview
-    Agdalicous.Server
+    Agdalicious.Agda
+    Agdalicious.Infoview
+    Agdalicious.Server
   build-depends:
     , aeson      >=2.0
     , base       >=4.18 && <5

@@ -5,7 +5,7 @@
 --
 -- The client sends the document and cursor position; the server answers with
 -- whatever the infoview should show there (goals, context, messages).
-module Agdalicous.Infoview
+module Agdalicious.Infoview
   ( infoviewMethod
   , InfoviewParams (..)
   , InfoviewResult (..)

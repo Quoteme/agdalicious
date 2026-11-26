@@ -2,7 +2,7 @@
 --
 -- Keeping one process alive lets Agda reuse already-checked imports, so
 -- reloading a file only re-checks what changed.
-module Agdalicous.Agda (Agda, start, command) where
+module Agdalicious.Agda (Agda, start, command) where
 
 import Control.Concurrent.MVar
 import Data.Aeson qualified as Aeson

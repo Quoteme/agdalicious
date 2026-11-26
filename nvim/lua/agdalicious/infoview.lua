@@ -4,7 +4,7 @@ local lsp = require("agdalicious.lsp")
 
 local M = {}
 
-local METHOD = "agda/infoview" -- keep in sync with server/src/Agdalicous/Infoview.hs
+local METHOD = "agda/infoview" -- keep in sync with server/src/Agdalicious/Infoview.hs
 
 local state = { buf = nil, win = nil }
 

@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Agdalicous.Server qualified as Server
+import Agdalicious.Server qualified as Server
 import System.Exit (ExitCode (..), exitWith)
 
 main :: IO ()
