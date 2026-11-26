@@ -22,6 +22,21 @@
           src = ./nvim;
         };
 
+        # The tree-sitter grammar (tree-sitter-agda/), compiled.
+        tree-sitter-agda = pkgs.tree-sitter.buildGrammar {
+          language = "agda";
+          version = "0.1.0";
+          src = ./tree-sitter-agda;
+        };
+
+        # The grammar laid out as a runtimepath directory, the way neovim
+        # looks for parsers and queries: parser/agda.so, queries/agda/*.scm.
+        agdalicious-treesitter = pkgs.runCommand "agdalicious-treesitter" { } ''
+          mkdir -p $out/parser $out/queries
+          ln -s ${tree-sitter-agda}/parser $out/parser/agda.so
+          ln -s ${tree-sitter-agda}/queries $out/queries/agda
+        '';
+
         # A throwaway neovim with the plugin, the server and agda on PATH,
         # for trying things out: `nix run .#nvim -- test/Example.agda`
         nvim-dev = pkgs.writeShellApplication {
@@ -30,6 +45,7 @@
           text = ''
             exec ${pkgs.neovim}/bin/nvim -u NONE \
               --cmd 'set rtp^=${agdalicious-nvim}' \
+              --cmd 'set rtp^=${agdalicious-treesitter}' \
               --cmd 'filetype plugin on' \
               --cmd 'syntax on' \
               -c 'lua require("agdalicious").setup()' \
@@ -40,7 +56,7 @@
       {
         packages = {
           default = agdalicious-lsp;
-          inherit agdalicious-lsp agdalicious-nvim;
+          inherit agdalicious-lsp agdalicious-nvim tree-sitter-agda agdalicious-treesitter;
           nvim = nvim-dev;
         };
 
@@ -59,6 +75,9 @@
             pkgs.neovim
             pkgs.lua-language-server
             pkgs.stylua
+            # Grammar development: (cd tree-sitter-agda && tree-sitter generate && tree-sitter test)
+            pkgs.tree-sitter
+            pkgs.nodejs
           ];
           shellHook = ''
             echo "agdalicious dev shell"

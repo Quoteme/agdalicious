@@ -16,7 +16,23 @@ M.config = {
     -- extra or overriding abbreviations, e.g. { ["bZ"] = "ℤ" }
     extra = {},
   },
+  treesitter = {
+    -- Highlight with tree-sitter-agda (needs parser/agda.so on
+    -- 'runtimepath'; the flake's agdalicious-treesitter package has it).
+    enabled = true,
+  },
 }
+
+-- Starts tree-sitter highlighting; does nothing if the parser is missing.
+local function start_treesitter(buf)
+  -- language.add returns nil (rather than raising) when there is no parser
+  local ok, added = pcall(vim.treesitter.language.add, "agda")
+  if not (ok and added) then
+    return
+  end
+  vim.treesitter.language.register("agda", { "agda" })
+  pcall(vim.treesitter.start, buf, "agda")
+end
 
 local patterns = { "*.agda", "*.lagda", "*.lagda.*" }
 
@@ -28,6 +44,9 @@ function M.setup(opts)
     group = group,
     pattern = patterns,
     callback = function(ev)
+      if M.config.treesitter.enabled and ev.file:match("%.agda$") then
+        start_treesitter(ev.buf)
+      end
       require("agdalicious.lsp").start(ev.buf, M.config.lsp)
       if M.config.unicode.enabled then
         require("agdalicious.unicode").attach(ev.buf, M.config.unicode)

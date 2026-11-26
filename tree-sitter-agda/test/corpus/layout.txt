@@ -1,0 +1,204 @@
+================================================================================
+Top-level module owns column-0 declarations
+================================================================================
+
+module M where
+
+x : A
+x = y
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (qname)
+    (signature
+      (qname)
+      (qname))
+    (function_clause
+      (lhs
+        (qname))
+      (qname))))
+
+================================================================================
+Where block, closed by dedent; comments do not affect layout
+================================================================================
+
+f = g
+  where
+    a = 1
+-- a comment at column 0
+    b = 2
+h = 3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    (lhs
+      (qname))
+    (qname)
+    (where
+      (function_clause
+        (lhs
+          (qname))
+        (number))
+      (comment)
+      (function_clause
+        (lhs
+          (qname))
+        (number))))
+  (function_clause
+    (lhs
+      (qname))
+    (number)))
+
+================================================================================
+Stacked layout keywords on one line
+================================================================================
+
+private module P where
+  postulate A : Set
+            B : Set
+  c = 1
+d = 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (private
+    (module_declaration
+      (qname)
+      (postulate
+        (signature
+          (qname)
+          (qname))
+        (signature
+          (qname)
+          (qname)))
+      (function_clause
+        (lhs
+          (qname))
+        (number))))
+  (function_clause
+    (lhs
+      (qname))
+    (number)))
+
+================================================================================
+Empty where block
+================================================================================
+
+module A where
+module B where
+x = 1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (module_declaration
+    (qname)
+    (module_declaration
+      (qname))
+    (function_clause
+      (lhs
+        (qname))
+      (number))))
+
+================================================================================
+Let closed by in on the same line
+================================================================================
+
+x = let a = 1 in a
+y = 2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    (lhs
+      (qname))
+    (let
+      (function_clause
+        (lhs
+          (qname))
+        (number))
+      (qname)))
+  (function_clause
+    (lhs
+      (qname))
+    (number)))
+
+================================================================================
+Lambda-where closed by a parenthesis
+================================================================================
+
+f = (λ where zero → 0
+             (suc k) → k) m
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    (lhs
+      (qname))
+    (parens
+      (lambda_where
+        (function_clause
+          (lhs
+            (qname)
+            (number)))
+        (function_clause
+          (lhs
+            (parens
+              (qname)
+              (qname))
+            (qname)))))
+    (qname)))
+
+================================================================================
+Do block
+================================================================================
+
+f = do
+  x ← m
+  let y = x
+  pure y
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    (lhs
+      (qname))
+    (do
+      (do_statement
+        (qname)
+        (qname))
+      (do_statement
+        (let
+          (function_clause
+            (lhs
+              (qname))
+            (qname))))
+      (do_statement
+        (qname)
+        (qname)))))
+
+================================================================================
+Explicit semicolons
+================================================================================
+
+f = x ; g = y
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    (lhs
+      (qname))
+    (qname))
+  (function_clause
+    (lhs
+      (qname))
+    (qname)))
