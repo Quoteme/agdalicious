@@ -1,0 +1,20 @@
+local M = {}
+
+M.name = "agdalicous"
+
+function M.start(buf, config)
+  return vim.lsp.start({
+    name = M.name,
+    cmd = config.cmd,
+    root_dir = vim.fs.root(buf, function(name)
+      return name:match("%.agda%-lib$") ~= nil or name == ".git"
+    end) or vim.fs.dirname(vim.api.nvim_buf_get_name(buf)),
+  }, { bufnr = buf })
+end
+
+--- The agdalicous client attached to `buf`, if any.
+function M.client(buf)
+  return vim.lsp.get_clients({ bufnr = buf, name = M.name })[1]
+end
+
+return M
