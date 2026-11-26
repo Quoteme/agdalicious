@@ -5,8 +5,10 @@
 module Agdalicious.Agda (Agda, start, command) where
 
 import Control.Concurrent.MVar
+import Control.Exception (onException)
+import Control.Monad (unless)
 import Data.Aeson qualified as Aeson
-import Data.List (isPrefixOf)
+import Data.List (isInfixOf, isPrefixOf)
 import Data.Maybe (mapMaybe)
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
@@ -26,10 +28,18 @@ start = do
 
 -- | Run an interaction command (e.g. @Cmd_load "/x/A.agda" []@) for a file
 -- and return Agda's responses.
+--
+-- Cancelling the calling thread (e.g. with 'Control.Concurrent.Async.cancel')
+-- aborts the command in Agda too, and leaves the process ready for the next one.
 command :: Agda -> FilePath -> String -> IO [Aeson.Value]
 command (Agda lock) file cmd = withMVar lock $ \(i, o) -> do
-  hPutStrLn i ("IOTCM " <> show file <> " None Direct (" <> cmd <> ")") >> hFlush i
-  mapMaybe (Aeson.decode . TL.encodeUtf8 . TL.pack) . lines <$> untilPrompt o
+  let send c = hPutStrLn i ("IOTCM " <> show file <> " None Direct (" <> c <> ")") >> hFlush i
+      -- An idle Cmd_abort prints nothing, so mark the end with a version request.
+      resync = send "Cmd_abort" >> send "Cmd_show_version" >> drain
+      drain = untilPrompt o >>= \out -> unless ("\"kind\":\"Version\"" `isInfixOf` out) drain
+  send cmd
+  out <- untilPrompt o `onException` resync
+  pure (mapMaybe (Aeson.decode . TL.encodeUtf8 . TL.pack) (lines out))
 
 -- | Read up to the next @JSON> @ prompt, which ends every batch of responses.
 untilPrompt :: Handle -> IO String

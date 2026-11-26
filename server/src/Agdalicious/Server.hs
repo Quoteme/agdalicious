@@ -10,13 +10,14 @@ module Agdalicious.Server (run) where
 import Agdalicious.Agda (Agda)
 import Agdalicious.Agda qualified as Agda
 import Agdalicious.Infoview
-import Control.Concurrent (forkIO)
+import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.MVar
 import Control.Lens ((^.), (^..))
-import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens (key, values, _String)
 import Data.Foldable (for_)
+import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as T
 import Language.LSP.Protocol.Lens qualified as L
@@ -30,6 +31,7 @@ type InfoviewMethod = 'Method_CustomMethod "agda/infoview" :: Method 'ClientToSe
 run :: IO Int
 run = do
   agda <- Agda.start
+  running <- newMVar mempty
   runServer
     ServerDefinition
       { parseConfig = \cfg _ -> Right cfg
@@ -37,7 +39,7 @@ run = do
       , defaultConfig = ()
       , configSection = "agdalicious"
       , doInitialize = \env _req -> pure (Right env)
-      , staticHandlers = const (handlers agda)
+      , staticHandlers = const (handlers agda running)
       , interpretHandler = \env -> Iso (runLspT env) liftIO
       , options = defaultOptions {optTextDocumentSync = Just syncOptions}
       }
@@ -51,13 +53,13 @@ syncOptions =
     Nothing -- willSaveWaitUntil
     (Just (InR (SaveOptions (Just False)))) -- save
 
-handlers :: Agda -> Handlers (LspM ())
-handlers agda =
+handlers :: Agda -> Running -> Handlers (LspM ())
+handlers agda running =
   mconcat
     [ notificationHandler SMethod_Initialized $ \_ ->
         logInfo "agdalicious-lsp initialized"
     , notificationHandler SMethod_TextDocumentDidOpen $ \msg ->
-        background (load agda (msg ^. L.params . L.textDocument . L.uri))
+        reload agda running (msg ^. L.params . L.textDocument . L.uri)
     , notificationHandler SMethod_TextDocumentDidChange $ \_ ->
         pure () -- the VFS tracks contents for us
     , notificationHandler SMethod_TextDocumentDidSave $ \msg ->
@@ -113,9 +115,17 @@ range t = case map (traverse (readMaybe . T.unpack) . T.splitOn ".") (T.splitOn 
   where
     pos l c l' c' = Just (Range (Position (l - 1) (c - 1)) (Position (l' - 1) (c' - 1)))
 
--- | Run off the reactor thread, so a long check doesn't block other requests.
-background :: LspM () () -> LspM () ()
-background act = getLspEnv >>= \env -> liftIO (void (forkIO (runLspT env act)))
+-- | The load currently running for each file.
+type Running = MVar (Map.Map Uri (Async ()))
+
+-- | Load a file in the background, cancelling a load of it that is still
+-- running, so only the newest contents get checked.
+reload :: Agda -> Running -> Uri -> LspM () ()
+reload agda running uri = do
+  env <- getLspEnv
+  liftIO . modifyMVar_ running $ \m -> do
+    new <- async (for_ (Map.lookup uri m) cancel >> runLspT env (load agda uri))
+    pure (Map.insert uri new m)
 
 -- | Compute the infoview contents at a position. Placeholder for now.
 infoview :: InfoviewParams -> LspM () InfoviewResult

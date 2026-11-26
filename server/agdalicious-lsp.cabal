@@ -22,7 +22,9 @@ library
     Agdalicious.Server
   build-depends:
     , aeson      >=2.0
+    , async
     , base       >=4.18 && <5
+    , containers
     , lens
     , lens-aeson
     , lsp        >=2.7 && <2.8
