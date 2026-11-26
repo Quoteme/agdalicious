@@ -5,7 +5,7 @@ Agda support for neovim, modelled on lean.nvim:
 - `server/`: **agdalicious-lsp**, a Haskell language server. It does the actual work: loading files in Agda, goals, diagnostics.
 - `nvim/`: a thin Lua plugin. It starts the server, shows the infoview (`:AgdaInfo`) and expands `\`-abbreviations as you type (`\lambda` → `λ`, `\to` → `→`, `\bN` → `ℕ`, ...).
 
-Both are skeletons for now. The infoview request (`agda/infoview`) returns placeholder text.
+Opening a file type-checks it in a persistent `agda --interaction-json` process and shows its errors and warnings as diagnostics. The infoview request (`agda/infoview`) still returns placeholder text.
 
 ## Development
 
