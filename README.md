@@ -19,6 +19,10 @@ Every open and edit type-checks the buffer (unsaved contents included) in a pers
 
 <img width="472" height="575" alt="image" src="https://github.com/user-attachments/assets/a1c9a354-1479-4834-8f51-d6ec6874a043" />
 
+Example of a code action to import a missing module
+<img width="697" height="216" alt="image" src="https://github.com/user-attachments/assets/b7e412ad-dd2f-490b-9096-5943abe399ad" />
+<img width="542" height="400" alt="image" src="https://github.com/user-attachments/assets/14ae122f-edb7-4b50-9d7c-669dd50f7b76" />
+
 ## Development
 
 ```sh
