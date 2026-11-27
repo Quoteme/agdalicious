@@ -5,7 +5,7 @@ Agda support for neovim, modelled on lean.nvim:
 - `server/`: **agdalicious-lsp**, a Haskell language server. It does the actual work: loading files in Agda, goals, diagnostics.
 - `nvim/`: a thin Lua plugin. It starts the server, shows the infoview (`:AgdaInfo`), expands `\`-abbreviations as you type (`\lambda` → `λ`, `\to` → `→`, `\bN` → `ℕ`, ...) and makes `<C-a>`/`<C-x>` count in sub- and superscripts.
 
-Every open and edit type-checks the buffer (unsaved contents included) in a persistent `agda --interaction-json` process, along with the other open files that may import it, and shows errors and warnings as diagnostics. Go to definition (`vim.lsp.buf.definition()`, `gd` with most configs) uses the definition sites Agda reports while checking, and hovering (`K`) explains what is under the cursor (see [Hover](#hover)). The infoview request (`agda/infoview`) still returns placeholder text.
+Every open and edit type-checks the buffer (unsaved contents included) in a persistent `agda --interaction-json` process, along with the other open files that may import it, and shows errors and warnings as diagnostics. Go to definition (`vim.lsp.buf.definition()`, `gd` with most configs) uses the definition sites Agda reports while checking, hovering (`K`) explains what is under the cursor (see [Hover](#hover)), and completion offers keywords, pragmas, options, modules and names (see [Completion](#completion)). The infoview request (`agda/infoview`) still returns placeholder text.
 
 ## Development
 
@@ -69,6 +69,21 @@ Hovering shows, as far as they exist: the type, a short explanation, the definit
 - **Holes**: the goal and what is in scope there.
 
 `scripts/gen-manual.py` generates the bundled part at build time from the manual's sources (the `agda-src` flake input, or the release tarball in CI). Which keywords, pragmas, built-ins and options there are, and where the manual explains them, comes from the manual itself; `scripts/doc-sources.json` has the URLs and the one keyword (`public`) whose section can't be found automatically.
+
+## Completion
+
+What is offered depends on where the cursor is:
+
+| Where | Offered |
+|---|---|
+| `{-# ` | pragmas (`OPTIONS`, `BUILTIN`, `TERMINATING`, ...) |
+| `{-# OPTIONS --gu` | the options a pragma can set (`--guarded`, `--guardedness`, ...) |
+| `{-# BUILTIN ` | built-ins (`NATURAL`, `EQUALITY`, ...) |
+| `open import Agda.Bui` | the modules the file can import: its project's, its libraries' (from its `.agda-lib` and Agda's libraries file) and Agda's built-in ones |
+| `open import Agda.Builtin.IO using (` (also `hiding`, `renaming`) | what the module exports, with types |
+| elsewhere | keywords, the names the file's `open import`s bring into scope (respecting `using`, `hiding` and `renaming`) and the names it defines |
+
+Keywords, pragmas, options and built-ins come with the manual's explanation; a module shows the comment at the top of its file once selected. What a module exports comes from Agda, which checks a scratch module importing it; the first time that can take a few seconds (Agda loads the module's dependencies), after that it is cached.
 
 ## Protocol
 

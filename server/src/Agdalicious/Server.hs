@@ -27,7 +27,7 @@ import Agdalicious.Shadow (Shadow)
 import Agdalicious.Shadow qualified as Shadow
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.MVar
-import Control.Lens ((&), (.~), (?~), (^.), (^..), (^?))
+import Control.Lens ((&), (?~), (^.), (^..), (^?))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.IO.Unlift (withRunInIO)
 import Control.Monad (guard, unless, void)
@@ -37,6 +37,7 @@ import Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens (key, values, _String)
 import Data.Bifunctor (first)
+import Data.Char (isAsciiLower)
 import Data.Foldable (for_)
 import System.FilePath ((</>))
 import Data.List (isPrefixOf, nub, sortOn)
@@ -361,7 +362,7 @@ completion uri pos@(Position l c) = fmap (maybe [] id) . runMaybeT $ do
   text <- MaybeT (fmap (^. file_text) <$> getVirtualFile (toNormalizedUri uri))
   before <- hoistMaybe (Rope.toText . fst <$> Rope.utf16SplitAt (fromIntegral c) (Rope.getLine (fromIntegral l) text))
   let edit w i = i & L.textEdit ?~ InL (TextEdit (Range (Position l (c - utf16Length w)) pos) (i ^. L.label))
-      documented kind w = [edit w (manualItem k e kind) | (k, e) <- Manual.termsOf kind]
+      documented kind w = [edit w (manualItem k e kind) | (k, e) <- Manual.termsOf kind, kind /= "keyword" || T.any isAsciiLower k]
       docText = Rope.toText text
   lift $ case Completion.context before of
     Pragma w -> pure (documented "pragma" w)
@@ -389,6 +390,7 @@ item label kind =
   CompletionItem label Nothing (Just kind) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- | A keyword, pragma, option or built-in, with what the manual says about it.
+-- (Of the keywords, only words are offered: symbols aren't worth completing.)
 manualItem :: T.Text -> Manual.Entry -> T.Text -> CompletionItem
 manualItem label e kind =
   item label (if kind == "keyword" then CompletionItemKind_Keyword else CompletionItemKind_Property)

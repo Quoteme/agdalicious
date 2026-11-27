@@ -56,6 +56,8 @@ expand s d = unless (takeDirectory d == d) $ do
   isLink <- pathIsSymbolicLink (path s d)
   when isLink $ removeFile (path s d) >> createDirectory (path s d) >> mirror d (path s d)
 
--- | Fill @copy@ with links to the entries of @orig@.
+-- | Fill @copy@ with links to the entries of @orig@. A @_build@ directory
+-- (Agda's interface files) is left out: Agda makes its own in the mirror, so
+-- the interfaces of the mirror's files never end up in the original.
 mirror :: FilePath -> FilePath -> IO ()
-mirror orig copy = listDirectory orig >>= mapM_ (\e -> createFileLink (orig </> e) (copy </> e))
+mirror orig copy = listDirectory orig >>= mapM_ (\e -> createFileLink (orig </> e) (copy </> e)) . filter (/= "_build")
