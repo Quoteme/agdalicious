@@ -52,6 +52,8 @@ import Data.Char (isAlphaNum, isAsciiLower)
 import Data.Foldable (for_)
 import System.FilePath (takeBaseName, takeDirectory, (<.>), (</>))
 import Data.List (isPrefixOf, nub, sortOn)
+import Data.Traversable (for)
+import Control.Exception (IOException, try)
 import Data.Maybe (catMaybes, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
@@ -428,29 +430,57 @@ inferType uri (n : ns) = do
 
 -- * Code actions
 
--- | The fixes for Agda's diagnostics: importing (or writing) what Agda
--- suggests for a name not in scope ("Agdalicious.CodeAction"). The only fix
--- for a diagnostic is marked preferred, so that the editor can apply it
+-- | The fixes for Agda's diagnostics ("Agdalicious.CodeAction"): for a name
+-- not in scope, importing (or writing) what Agda suggests, or, if it has
+-- nothing to import, importing a module that defines the name. The only
+-- fix for a diagnostic is marked preferred, so that the editor can apply it
 -- without listing it.
 codeActions :: Uri -> [Diagnostic] -> ServerM [Command |? CodeAction]
 codeActions uri ds = do
   doc <- maybe "" (Rope.toText . (^. file_text)) <$> getVirtualFile (toNormalizedUri uri)
-  pure
-    [ InR $
-        CodeAction
-          (CodeAction.title f)
-          (Just CodeActionKind_QuickFix)
-          (Just [d])
-          (Just (length fs == 1))
-          Nothing -- disabled
-          (Just (WorkspaceEdit (Just (Map.singleton uri [TextEdit r t | (r, t) <- CodeAction.edits f])) Nothing Nothing))
-          Nothing -- command
-          Nothing -- data
-    | d <- ds
-    , d ^. L.source == Just "agda"
-    , let fs = CodeAction.notInScope doc (d ^. L.message) (d ^. L.range)
-    , f <- fs
-    ]
+  fmap concat . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
+    let suggested = CodeAction.notInScope doc (d ^. L.message) (d ^. L.range)
+        imports = filter (("Import " `T.isPrefixOf`) . CodeAction.title) suggested
+    found <- case CodeAction.missingName (d ^. L.message) of
+      Just n | null imports -> importsOf uri doc n
+      _ -> pure []
+    let fs = found <> suggested
+    pure [InR (codeAction d (length fs == 1) f) | f <- fs]
+  where
+    codeAction d preferred f =
+      CodeAction
+        (CodeAction.title f)
+        (Just CodeActionKind_QuickFix)
+        (Just [d])
+        (Just preferred)
+        Nothing -- disabled
+        (Just (WorkspaceEdit (Just (Map.singleton uri [TextEdit r t | (r, t) <- CodeAction.edits f])) Nothing Nothing))
+        Nothing -- command
+        Nothing -- data
+
+-- | Importing a name from one of the modules the document can import but
+-- does not: those whose sources seem to define it, or re-export all of a
+-- module that does (as @Data.Nat@ does @Data.Nat.Base@), and whose exports,
+-- as Agda lists them, have it. Modules with shorter names come first (the
+-- built-in ones and the main modules of a library), and only so many are
+-- asked about, as Agda takes a while for each the first time.
+importsOf :: Uri -> T.Text -> T.Text -> ServerM [CodeAction.Fix]
+importsOf uri doc n = do
+  ms <- modules uri doc
+  let own = maybeToList (Source.moduleName (Source.moduleOf (T.lines doc)))
+      imported = map Completion.module_ (Completion.imports doc) <> own
+  sources <- liftIO . for ms $ \(m, f) -> do
+    src <- try (T.readFile f) :: IO (Either IOException T.Text)
+    pure [(m, (CodeAction.definitions n t, CodeAction.reexports t)) | Right t <- [src]]
+  let scanned = concat sources
+      direct = [(m, d) | (m, (ds, _)) <- scanned, d <- ds]
+      -- three levels of re-exports are plenty
+      through known = nub (known <> [(m, d) | (m, (_, rs)) <- scanned, (r, d) <- known, r `elem` rs])
+      found = iterate through direct !! 3
+      candidates = take 10 (sortOn (T.length . fst) [c | c@(m, _) <- found, m `notElem` imported])
+  fmap concat . for candidates $ \(m, d) -> do
+    names <- map fst <$> exports uri doc m
+    pure [CodeAction.importModule doc m d | d `elem` names]
 
 -- * Completion
 
@@ -538,8 +568,6 @@ modules uri docText = case uriToFilePath uri of
         else modifyMVar moduleLists $ \cache -> case Map.lookup d cache of
           Just ms -> pure (cache, ms)
           Nothing -> (\ms -> (Map.insert d ms cache, ms)) <$> Libraries.modulesIn d
-  where
-    for = flip traverse
 
 -- | The names a module exports, with their types. Agda says what they are:
 -- it checks a scratch module that imports it (in the mirror, at the

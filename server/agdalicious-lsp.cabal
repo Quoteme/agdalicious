@@ -21,6 +21,7 @@ library
     Agdalicious.Client
     Agdalicious.CodeAction
     Agdalicious.CodeAction.Fix
+    Agdalicious.CodeAction.ImportModule
     Agdalicious.CodeAction.ImportSuggestion
     Agdalicious.Completion
     Agdalicious.Document

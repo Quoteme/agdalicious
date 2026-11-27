@@ -91,7 +91,7 @@ Hovering shows, as far as they exist: the type, a short explanation, the definit
 
 ## Code actions
 
-For a name that is not in scope, the code actions (`vim.lsp.buf.code_action()`) offer what Agda suggests in its error (`did you mean 'Agda.Builtin.Nat._+_'?`): importing the name from a module the file imports already (added to the `using` list of its `open`, or as `open M using (x)` after a plain `import M`), or writing a suggestion instead (`suc` for `sucx`). When there is only one fix, it is marked preferred, so `vim.lsp.buf.code_action({ apply = true })` applies it at once. Agda only suggests names of modules that are imported: for others there is nothing to offer yet.
+For a name that is not in scope, the code actions (`vim.lsp.buf.code_action()`) offer what Agda suggests in its error (`did you mean 'Agda.Builtin.Nat._+_'?`): importing the name from a module the file imports already (added to the `using` list of its `open`, or as `open M using (x)` after a plain `import M`), or writing a suggestion instead (`suc` for `sucx`). Agda only suggests names of modules that are imported. For a name it has nothing to import for, the server looks for the modules that define it among those the file can import (the project's, its libraries' and Agda's built-in ones) in their sources, following re-exports (`Data.Nat` re-exports `ℕ` of `Data.Nat.Base`), has Agda confirm that they export it, and offers `open import M using (x)` for each, shortest module name first. The first time, with the standard library, that takes a few seconds. When there is only one fix, it is marked preferred, so `vim.lsp.buf.code_action({ apply = true })` applies it at once.
 
 ## Foreign code
 
