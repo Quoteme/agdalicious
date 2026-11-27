@@ -9,6 +9,16 @@ Agda support for neovim, modelled on lean.nvim:
 
 Every open and edit type-checks the buffer (unsaved contents included) in a persistent `agda --interaction-json` process, along with the other open files that may import it, and shows errors and warnings as diagnostics. Go to definition (`vim.lsp.buf.definition()`, `gd` with most configs) uses the definition sites Agda reports while checking, hovering (`K`) explains what is under the cursor (see [Hover](#hover)), and completion offers keywords, pragmas, options, modules and names (see [Completion](#completion)). The infoview request (`agda/infoview`) still returns placeholder text.
 
+## Screenshots
+
+<img width="491" height="480" alt="image" src="https://github.com/user-attachments/assets/c0145cca-3aad-4720-a022-bc5f0e0cc66d" />
+
+<img width="502" height="460" alt="image" src="https://github.com/user-attachments/assets/5b72239a-9318-4beb-a99a-83ecdbff6d78" />
+
+<img width="708" height="513" alt="image" src="https://github.com/user-attachments/assets/9cf14585-1ec6-469f-99c7-405ca93ef345" />
+
+<img width="472" height="575" alt="image" src="https://github.com/user-attachments/assets/a1c9a354-1479-4834-8f51-d6ec6874a043" />
+
 ## Development
 
 ```sh
