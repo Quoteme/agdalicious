@@ -28,6 +28,8 @@
 
         agdalicious-lsp = pkgs.haskell.lib.overrideCabal (hpkgs.callCabal2nix "agdalicious-lsp" ./server { }) (old: {
           preBuild = (old.preBuild or "") + ''
+            # the commit for --version (the source in the store has no .git)
+            export AGDALICIOUS_COMMIT=${self.rev or self.dirtyRev or "unknown"}
             mkdir -p data && cp ${agdalicious-manual} data/manual.json
           '';
         });

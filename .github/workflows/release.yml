@@ -68,7 +68,12 @@ jobs:
             "agda-${AGDA_VERSION}/doc/user-manual" scripts/doc-sources.json > server/data/manual.json
 
       - name: Build
-        run: cabal build exe:agdalicious-lsp
+        env:
+          # compiled in, for --version (for a pull request: its head, not the merge)
+          AGDALICIOUS_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          cabal build exe:agdalicious-lsp
+          "$(cabal list-bin exe:agdalicious-lsp)" --version
 
       - name: Package binary
         id: package

@@ -53,7 +53,16 @@ executable agdalicious-lsp
   import:         shared
   hs-source-dirs: app
   main-is:        Main.hs
+  other-modules:
+    Paths_agdalicious_lsp
+    Version
+    Version.Commit
+  autogen-modules: Paths_agdalicious_lsp
   ghc-options:    -threaded -rtsopts
   build-depends:
     , agdalicious-lsp
     , base
+    , directory
+    , optparse-applicative
+    , process
+    , template-haskell
