@@ -38,9 +38,19 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim), from the `dist` branch:
 }
 ```
 
-`dist` is the plugin of the latest `master`, laid out for plugin managers and with the tree-sitter parser prebuilt for Linux, macOS and Windows (x86_64 and aarch64), so highlighting works without compiling anything. A GitHub Actions workflow (`.github/workflows/dist.yml`, using `scripts/build-dist.sh`) rebuilds it on every push to `master`. The server, `agdalicious-lsp`, still has to be on your `PATH` (from the [releases](https://github.com/Quoteme/agdalicious/releases) or `nix build .#agdalicious-lsp`). `agdalicious-lsp --version` (or `-v`) prints the commit it was built from: the release workflow and the flake compile it in (from `AGDALICIOUS_COMMIT`), a local `cabal build` asks `git`.
+Make sure you also have `agdalicious-lsp` on your `PATH`, for example by running:
 
-Or call `setup` yourself:
+```bash
+nix shell github:Quoteme/agdalicious#agdalicious-lsp
+```
+
+If you also want haskell-language-server support inside `FOREIGN GHC ...` blocks, ensure `ghc` and `haskell-language-server` are also available (both from the same nixpkgs, see [Foreign code](#foreign-code)):
+
+```bash
+nix shell github:Quoteme/agdalicious#agdalicious-lsp nixpkgs#haskell-language-server nixpkgs#ghc
+```
+
+Manual installation can also be done by calling `setup` yourself:
 
 ```lua
 require("agdalicious").setup({
