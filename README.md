@@ -24,24 +24,21 @@ The dev shell links the generated hover texts to `server/data/manual.json`, wher
 
 ## Using the plugin
 
-With [lazy.nvim](https://github.com/folke/lazy.nvim):
+With [lazy.nvim](https://github.com/folke/lazy.nvim), from the `dist` branch:
 
 ```lua
 {
   "Quoteme/agdalicious",
+  branch = "dist",
   ft = "agda",
-  config = function(plugin, opts)
-    -- the neovim plugin lives in the repository's nvim/ directory
-    vim.opt.rtp:append(plugin.dir .. "/nvim")
-    vim.cmd.runtime("plugin/agdalicious.lua")
-    require("agdalicious").setup(opts)
-  end,
   opts = {
     lsp = { cmd = { "agdalicious-lsp" } },
     unicode = { extra = { ["bZ"] = "ℤ" } },
   },
 }
 ```
+
+`dist` is the plugin of the latest `master`, laid out for plugin managers and with the tree-sitter parser prebuilt for Linux, macOS and Windows (x86_64 and aarch64), so highlighting works without compiling anything. A GitHub Actions workflow (`.github/workflows/dist.yml`, using `scripts/build-dist.sh`) rebuilds it on every push to `master`. The server, `agdalicious-lsp`, still has to be on your `PATH` (from the [releases](https://github.com/Quoteme/agdalicious/releases) or `nix build .#agdalicious-lsp`).
 
 Or call `setup` yourself:
 

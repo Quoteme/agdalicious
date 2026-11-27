@@ -27,10 +27,28 @@ M.config = {
   },
 }
 
+-- The parser built for this platform, as the plugin's `dist` branch has it
+-- (parsers/agda-<os>-<arch>.so, see scripts/build-dist.sh), if there is one.
+local function prebuilt_parser()
+  local uname = vim.uv.os_uname()
+  local os = ({ Linux = "linux", Darwin = "macos", Windows_NT = "windows" })[uname.sysname]
+  local arch = ({ x86_64 = "x86_64", amd64 = "x86_64", AMD64 = "x86_64", aarch64 = "aarch64", arm64 = "aarch64", ARM64 = "aarch64" })[uname.machine]
+  if os and arch then
+    return vim.api.nvim_get_runtime_file("parsers/agda-" .. os .. "-" .. arch .. ".so", false)[1]
+  end
+end
+
 -- Starts tree-sitter highlighting; does nothing if the parser is missing.
+-- A parser on 'runtimepath' (parser/agda.so) comes first, then the prebuilt one.
 local function start_treesitter(buf)
   -- language.add returns nil (rather than raising) when there is no parser
   local ok, added = pcall(vim.treesitter.language.add, "agda")
+  if not (ok and added) then
+    local path = prebuilt_parser()
+    if path then
+      ok, added = pcall(vim.treesitter.language.add, "agda", { path = path })
+    end
+  end
   if not (ok and added) then
     return
   end

@@ -1,0 +1,41 @@
+name: Publish the plugin with prebuilt parsers
+
+# Keeps the `dist` branch at the plugin of the latest master, laid out for
+# plugin managers (lua/, plugin/, queries/ at the top) and with the
+# tree-sitter parser built for every platform (see scripts/build-dist.sh).
+# The branch is one commit, replaced each time, so it doesn't grow.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dist
+  cancel-in-progress: true
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+
+      - name: Build
+        run: scripts/build-dist.sh dist
+
+      - name: Push to the dist branch
+        working-directory: dist
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git init -q -b dist
+          git add -A
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "dist: plugin and parsers of ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dist
