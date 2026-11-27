@@ -11,6 +11,12 @@ Every open and edit type-checks the buffer (unsaved contents included) in a pers
 
 ## Screenshots
 
+Complete tour
+
+https://github.com/user-attachments/assets/bb1f3b16-e2e3-4143-894f-93f098fabd31
+
+Various screenshots
+
 <img width="491" height="480" alt="image" src="https://github.com/user-attachments/assets/c0145cca-3aad-4720-a022-bc5f0e0cc66d" />
 
 <img width="502" height="460" alt="image" src="https://github.com/user-attachments/assets/5b72239a-9318-4beb-a99a-83ecdbff6d78" />
