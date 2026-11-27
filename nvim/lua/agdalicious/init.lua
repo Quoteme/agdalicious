@@ -1,6 +1,7 @@
 -- agdalicious: thin neovim front-end for agdalicious-lsp.
--- The plugin only (1) starts the server, (2) renders the infoview and
--- (3) expands \-abbreviations. Everything else is the server's job.
+-- The plugin only (1) starts the server, (2) renders the infoview,
+-- (3) expands \-abbreviations and (4) makes <C-a>/<C-x> count in sub- and
+-- superscripts. Everything else is the server's job.
 local M = {}
 
 M.config = {
@@ -15,6 +16,9 @@ M.config = {
     leader = "\\",
     -- extra or overriding abbreviations, e.g. { ["bZ"] = "ℤ" }
     extra = {},
+  },
+  increment = {
+    enabled = true,
   },
 }
 
@@ -31,6 +35,9 @@ function M.setup(opts)
       require("agdalicious.lsp").start(ev.buf, M.config.lsp)
       if M.config.unicode.enabled then
         require("agdalicious.unicode").attach(ev.buf, M.config.unicode)
+      end
+      if M.config.increment.enabled then
+        require("agdalicious.increment").attach(ev.buf)
       end
       require("agdalicious.infoview").attach(ev.buf)
     end,

@@ -3,7 +3,7 @@
 Agda support for neovim, modelled on lean.nvim:
 
 - `server/`: **agdalicious-lsp**, a Haskell language server. It does the actual work: loading files in Agda, goals, diagnostics.
-- `nvim/`: a thin Lua plugin. It starts the server, shows the infoview (`:AgdaInfo`) and expands `\`-abbreviations as you type (`\lambda` → `λ`, `\to` → `→`, `\bN` → `ℕ`, ...).
+- `nvim/`: a thin Lua plugin. It starts the server, shows the infoview (`:AgdaInfo`), expands `\`-abbreviations as you type (`\lambda` → `λ`, `\to` → `→`, `\bN` → `ℕ`, ...) and makes `<C-a>`/`<C-x>` count in sub- and superscripts.
 
 Every open and edit type-checks the buffer (unsaved contents included) in a persistent `agda --interaction-json` process, along with the other open files that may import it, and shows errors and warnings as diagnostics. Go to definition (`vim.lsp.buf.definition()`, `gd` with most configs) uses the definition sites Agda reports while checking. The infoview request (`agda/infoview`) still returns placeholder text.
 
@@ -52,6 +52,10 @@ require("agdalicious").setup({
 ### Unicode input
 
 An abbreviation is replaced as soon as it can't be extended any further (`\lambda`). An ambiguous one, such as `\to` (which could still become `\top`), is replaced when the next character rules out the longer ones, or when you leave insert mode. The table is in `nvim/lua/agdalicious/abbreviations.lua`.
+
+### Sub- and superscripts
+
+In Agda buffers `<C-a>` and `<C-x>` also increment and decrement numbers written in sub- or superscript digits: `x₁` → `x₂`, `n⁹` → `n¹⁰`, `x₀` → `x₋₁`. They pick the number under or after the cursor, as the built-in commands do, and take a count and repeat with `.`. Plain numbers are left to the built-in commands. Turn this off with `increment = { enabled = false }`.
 
 ## Protocol
 
