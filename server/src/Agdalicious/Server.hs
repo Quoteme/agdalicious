@@ -161,9 +161,10 @@ data Synced = Synced
 newtype Config = Config {backends :: Map.Map T.Text Foreign.Backend}
 
 parseSettings :: Config -> Aeson.Value -> Either T.Text Config
-parseSettings _ = first T.pack . parseEither (Aeson.withObject "settings" $ \o -> do
+parseSettings c Aeson.Null = Right c
+parseSettings _ v = first T.pack . flip parseEither v $ Aeson.withObject "settings" $ \o -> do
   given <- o Aeson..:? "foreign" Aeson..!= mempty
-  pure (Config (Map.mapWithKey complete (Map.mapMaybe id (given <> fmap Just Foreign.defaultBackends)))))
+  pure (Config (Map.mapWithKey complete (Map.mapMaybe id (given <> fmap Just Foreign.defaultBackends))))
   where
     complete b be =
       be
@@ -528,15 +529,21 @@ runGoalCommand uri g cmd = do
   let holes = maybe [] Doc.goals loaded
       hole n = listToMaybe [CodeAction.Hole (rangeOf (goalFrom h) (goalTo h) rope) (inside (slice (goalFrom h) (goalTo h) rope)) | h <- holes, goal h == n]
       inside t = maybe "" T.strip (T.stripPrefix "{!" t >>= T.stripSuffix "!}")
+  let tell kind = sendNotification SMethod_WindowShowMessage . ShowMessageParams kind
   case hole g of
-    Nothing -> pure ()
+    Nothing -> tell MessageType_Warning "agdalicious: that hole is gone (the file changed since it was last checked): try again once it is checked"
     Just h -> do
       rs <- query uri (CodeAction.commandLine (CodeAction.GoalCommand "" cmd) g (CodeAction.holeText h))
       let CodeAction.Outcome {CodeAction.changes, CodeAction.notes} = CodeAction.outcome (T.lines (Rope.toText rope)) hole g rs
       unless (null changes) . void $
         sendRequest SMethod_WorkspaceApplyEdit (ApplyWorkspaceEditParams (Just cmd) (WorkspaceEdit (Just (Map.singleton uri [TextEdit r t | (r, t) <- changes])) Nothing Nothing)) (const (pure ()))
-      for_ notes $ \(err, t) ->
-        sendNotification SMethod_WindowShowMessage (ShowMessageParams (if err then MessageType_Error else MessageType_Info) t)
+      sh <- asks shadow
+      for_ notes $ \(err, t) -> tell (if err then MessageType_Error else MessageType_Info) (Shadow.unshadow sh t)
+      -- Agda says nothing when, for one, there is nothing in the hole to give
+      when (null changes && null notes) . tell MessageType_Warning $
+        if T.null (CodeAction.holeText h)
+          then "Agda did nothing: this command works on what is in the hole. Write it there ({! … !}, see \"Expand ? to {! !}\") and try again"
+          else "Agda did nothing with " <> CodeAction.holeText h
 
 -- * Completion
 

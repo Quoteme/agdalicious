@@ -54,6 +54,8 @@ outcome docLines holes goal = foldMap response
       Just "DisplayInfo" -> case r ^? key "info" . key "kind" . _String of
         Just "AllGoalsWarnings" -> mempty -- the reload shows these
         Just "Error" -> note True (maybe "" id (r ^? key "info" . key "error" . key "message" . _String <|> r ^? key "info" . key "message" . _String))
+        Just "IntroNotFound" -> note False "Nothing to introduce: the goal is neither a function type nor a data or record type with a single fitting constructor"
+        Just "IntroConstructorUnknown" -> note False ("Which constructor? Write one in the hole and refine: " <> T.intercalate ", " (r ^.. key "info" . key "constructors" . values . _String))
         _ -> maybe mempty (note False . render) (r ^? key "info")
       _ -> mempty
     holeOf r = holes =<< (r ^? key "interactionPoint" . key "id" . _Integral <|> Just goal)
