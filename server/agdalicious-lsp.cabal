@@ -18,8 +18,10 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Agdalicious.Agda
+    Agdalicious.Client
     Agdalicious.Completion
     Agdalicious.Document
+    Agdalicious.Foreign
     Agdalicious.Hover
     Agdalicious.Infoview
     Agdalicious.Libraries
@@ -31,6 +33,7 @@ library
     , aeson      >=2.0
     , async
     , base       >=4.18 && <5
+    , bytestring
     , containers
     , directory
     , file-embed

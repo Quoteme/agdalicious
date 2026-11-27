@@ -7,6 +7,10 @@ local M = {}
 M.config = {
   lsp = {
     cmd = { "agdalicious-lsp" },
+    -- the language server for each backend's FOREIGN/COMPILE code, over the
+    -- defaults (GHC: haskell-language-server-wrapper, C/CPP: clangd, JS:
+    -- typescript-language-server), e.g. { GHC = { command = { "hls", "--lsp" } }, JS = vim.NIL }
+    foreign = {},
   },
   infoview = {
     width = 50,

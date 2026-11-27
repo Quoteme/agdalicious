@@ -10,14 +10,22 @@
 -- come from Agda, the sources of the definitions ("Agdalicious.Source") and
 -- the Agda user manual ("Agdalicious.Manual").
 -- Agda checks the editor's contents, not the saved files: see "Agdalicious.Shadow".
+--
+-- The code in FOREIGN and COMPILE pragmas is the business of its backend's
+-- language server (haskell-language-server for GHC, ...): it gets that code
+-- as a file of its own ("Agdalicious.Foreign", "Agdalicious.Client"), and
+-- hovering, going to definitions and completing there is passed on to it.
 module Agdalicious.Server (run) where
 
 import Agdalicious.Agda (Agda)
 import Agdalicious.Agda qualified as Agda
+import Agdalicious.Client (Client)
+import Agdalicious.Client qualified as Client
 import Agdalicious.Completion (Context (..))
 import Agdalicious.Completion qualified as Completion
 import Agdalicious.Document (Document, Goal (..), Token (..), goalAt, offsetOf, positionOf, rangeOf, slice, tokenAt)
 import Agdalicious.Document qualified as Doc
+import Agdalicious.Foreign qualified as Foreign
 import Agdalicious.Hover (Info (..), render)
 import Agdalicious.Manual qualified as Manual
 import Agdalicious.Source qualified as Source
@@ -27,21 +35,23 @@ import Agdalicious.Shadow (Shadow)
 import Agdalicious.Shadow qualified as Shadow
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.MVar
-import Control.Lens ((&), (?~), (^.), (^..), (^?))
+import Control.Lens ((%~), (&), (.~), (?~), (^.), (^..), (^?))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.IO.Unlift (withRunInIO)
-import Control.Monad (guard, unless, void)
-import Control.Monad.Reader (ReaderT, asks, runReaderT)
+import Control.Monad (guard, unless, void, when)
+import Control.Monad.Reader (ReaderT, ask, asks, runReaderT)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
+import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Types (parseEither)
 import Data.Aeson.Lens (key, values, _String)
 import Data.Bifunctor (first)
-import Data.Char (isAsciiLower)
+import Data.Char (isAlphaNum, isAsciiLower)
 import Data.Foldable (for_)
-import System.FilePath ((</>))
+import System.FilePath (takeBaseName, takeDirectory, (<.>), (</>))
 import Data.List (isPrefixOf, nub, sortOn)
-import Data.Maybe (catMaybes, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as T
@@ -69,11 +79,14 @@ run = Shadow.with $ \shadow -> do
       <*> newMVar mempty
       <*> newMVar mempty
       <*> newMVar ()
+      <*> newMVar mempty
+      <*> newMVar mempty
+      <*> newMVar mempty
   runServer
     ServerDefinition
-      { parseConfig = \cfg _ -> Right cfg
+      { parseConfig = parseSettings
       , onConfigChange = const (pure ())
-      , defaultConfig = ()
+      , defaultConfig = Config Foreign.defaultBackends
       , configSection = "agdalicious"
       , doInitialize = \env _req -> pure (Right env)
       , staticHandlers = const handlers
@@ -110,10 +123,47 @@ data State = State
   -- ^ the names (with types) each module exports, as far as asked for
   , scratch :: MVar ()
   -- ^ held while a scratch module (see 'exports') is in use
+  , servers :: MVar (Map.Map T.Text (Maybe Client))
+  -- ^ the language server of each backend, once needed ('Nothing' if it cannot be started)
+  , synced :: MVar (Map.Map (Uri, T.Text) Synced)
+  -- ^ each document's foreign code for each backend
+  , agdaDiagnostics :: MVar (Map.Map Uri [Diagnostic])
+  -- ^ what each document's last load said about it
   }
 
+-- | A document's foreign code for one backend, as its language server has it.
+data Synced = Synced
+  { backendName :: T.Text
+  , server :: Maybe Client
+  , virtualFile :: FilePath
+  -- ^ next to the document (in the mirror: 'virtualUri')
+  , virtualUri :: Uri
+  , version :: Int
+  , contents :: Foreign.Virtual
+  , reports :: [Diagnostic]
+  -- ^ the server's diagnostics for it, in the virtual file
+  }
+
+-- | The settings: the language server for each backend's foreign code. The
+-- editor can change them (in @initializationOptions.agdalicious@), as in
+-- @{"foreign": {"GHC": {"command": ["hls", "--lsp"]}, "JS": null}}@; a
+-- backend's @languageId@ and file @extension@ are its name in lower case
+-- unless given.
+newtype Config = Config {backends :: Map.Map T.Text Foreign.Backend}
+
+parseSettings :: Config -> Aeson.Value -> Either T.Text Config
+parseSettings _ = first T.pack . parseEither (Aeson.withObject "settings" $ \o -> do
+  given <- o Aeson..:? "foreign" Aeson..!= mempty
+  pure (Config (Map.mapWithKey complete (Map.mapMaybe id (given <> fmap Just Foreign.defaultBackends)))))
+  where
+    complete b be =
+      be
+        { Foreign.languageId = if T.null (Foreign.languageId be) then T.toLower b else Foreign.languageId be
+        , Foreign.extension = if null (Foreign.extension be) then T.unpack (T.toLower b) else Foreign.extension be
+        }
+
 -- | The monad the handlers run in: the LSP monad, with the shared state.
-type ServerM = ReaderT State (LspM ())
+type ServerM = ReaderT State (LspM Config)
 
 handlers :: Handlers ServerM
 handlers =
@@ -131,21 +181,22 @@ handlers =
         let uri = msg ^. L.params . L.textDocument . L.uri
         s <- asks shadow
         for_ (uriToFilePath uri) (liftIO . Shadow.restore s)
+        closeForeign uri
         reloadOpen uri
     , notificationHandler SMethod_SetTrace $ \_ ->
         pure ()
     , requestHandler SMethod_TextDocumentDefinition $ \req respond -> do
         let p = req ^. L.params
-        loc <- definition (p ^. L.textDocument . L.uri) (p ^. L.position)
-        respond (Right (maybe (InR (InR Null)) (InL . Definition . InL) loc))
+        respond . Right =<< orForeign "textDocument/definition" p (InR (InR Null)) definitionBack
+          (maybe (InR (InR Null)) (InL . Definition . InL) <$> definition (p ^. L.textDocument . L.uri) (p ^. L.position))
     , requestHandler SMethod_TextDocumentHover $ \req respond -> do
         let p = req ^. L.params
-        h <- hover (p ^. L.textDocument . L.uri) (p ^. L.position)
-        respond (Right (maybe (InR Null) InL h))
+        respond . Right =<< orForeign "textDocument/hover" p (InR Null) hoverBack
+          (maybe (InR Null) InL <$> hover (p ^. L.textDocument . L.uri) (p ^. L.position))
     , requestHandler SMethod_TextDocumentCompletion $ \req respond -> do
         let p = req ^. L.params
-        items <- completion (p ^. L.textDocument . L.uri) (p ^. L.position)
-        respond (Right (InL items))
+        respond . Right =<< orForeign "textDocument/completion" p (InR (InR Null)) completionBack
+          (InL <$> completion (p ^. L.textDocument . L.uri) (p ^. L.position))
     , requestHandler SMethod_CompletionItemResolve $ \req respond ->
         respond . Right =<< resolveItem (req ^. L.params)
     , requestHandler SMethod_TextDocumentSemanticTokensFull $ \_ respond ->
@@ -174,6 +225,7 @@ edited uri = do
     -- what its module exports may have changed
     for_ (Source.moduleName (Source.moduleOf (T.lines (virtualFileText vf)))) $ \m ->
       modifyMVar_ exported (pure . Map.delete m)
+  for_ file (syncForeign uri . virtualFileText)
   reloadOpen uri
 
 -- | Reload every open document, starting with @uri@ if it is one of them.
@@ -186,7 +238,7 @@ reloadOpen uri = do
 -- warnings as diagnostics.
 load :: Uri -> ServerM ()
 load uri = for_ (uriToFilePath uri) $ \file -> do
-  State {agda, shadow, documents} <- asks id
+  State {agda, shadow, documents, agdaDiagnostics} <- asks id
   let copy = Shadow.path shadow file
   responses <- liftIO (Agda.command agda copy ("Cmd_load " <> show copy <> " []"))
   -- a load that fails early has no highlighting: keep what the previous one said then
@@ -194,8 +246,25 @@ load uri = for_ (uriToFilePath uri) $ \file -> do
       unshadow t = t {site = first (T.unpack . Shadow.unshadow shadow . T.pack) <$> site t}
   unless (null (Doc.tokens doc)) . liftIO $
     modifyMVar_ documents (pure . Map.insert uri doc {Doc.tokens = map unshadow (Doc.tokens doc)})
-  sendNotification SMethod_TextDocumentPublishDiagnostics . PublishDiagnosticsParams uri Nothing $
+  liftIO . modifyMVar_ agdaDiagnostics . (pure .) . Map.insert uri $
     map (diagnostic file . fmap (Shadow.unshadow shadow)) (concatMap messagesOf responses)
+  publish uri
+
+-- | Publish a document's diagnostics: Agda's, and those the language servers
+-- of its foreign code have.
+publish :: Uri -> ServerM ()
+publish uri = do
+  State {agdaDiagnostics, synced} <- asks id
+  fromAgda <- Map.findWithDefault [] uri <$> liftIO (readMVar agdaDiagnostics)
+  ss <- liftIO (readMVar synced)
+  let fromServers =
+        [ d & L.range .~ r & L.relatedInformation .~ Nothing
+        | ((u, _), s) <- Map.toList ss
+        , u == uri
+        , d <- reports s
+        , Just r <- [Foreign.reported (contents s) (d ^. L.range)]
+        ]
+  sendNotification SMethod_TextDocumentPublishDiagnostics (PublishDiagnosticsParams uri Nothing (fromAgda <> fromServers))
 
 -- | The errors and warnings of a @DisplayInfo@ response (@Error@ or @AllGoalsWarnings@).
 messagesOf :: Aeson.Value -> [(DiagnosticSeverity, T.Text)]
@@ -409,12 +478,20 @@ nameItem n t = item n CompletionItemKind_Function & L.detail ?~ t
 -- | A module's documentation (the comment at the top of its file), when a
 -- completion of it is selected.
 resolveItem :: CompletionItem -> ServerM CompletionItem
-resolveItem i = case i ^? L.data_ . traverse . key "file" . _String of
-  Nothing -> pure i
-  Just f -> do
+resolveItem i = case (i ^? L.data_ . traverse . key "file" . _String, foreignData) of
+  (_, Just (b, uri, original)) -> do
+    s <- Map.lookup (uri, b) <$> (liftIO . readMVar =<< asks synced)
+    resolved <- maybe (pure Nothing) (\s' -> askServer s' "completionItem/resolve" original) s
+    pure (maybe i (\s' -> maybe i (foreignItem uri b (contents s')) resolved) s)
+  (Nothing, _) -> pure i
+  (Just f, _) -> do
     src <- textOf (T.unpack f)
     let header = Source.header (Source.moduleOf (Rope.lines src))
     pure (if null header then i else i & L.documentation ?~ InR (MarkupContent MarkupKind_Markdown (T.intercalate "\n\n" header)))
+  where
+    foreignData = do
+      d <- i ^. L.data_
+      (,,) <$> d ^? key "foreign" . _String <*> (Uri <$> d ^? key "uri" . _String) <*> d ^? key "item"
 
 -- | The modules a document can import.
 modules :: Uri -> T.Text -> ServerM [(T.Text, FilePath)]
@@ -538,3 +615,169 @@ infoview InfoviewParams {textDocument, position} =
 logInfo :: T.Text -> ServerM ()
 logInfo t =
   sendNotification SMethod_WindowLogMessage (LogMessageParams MessageType_Info t)
+
+-- * Foreign code
+
+-- | Hand a document's foreign code to the language servers of its backends,
+-- and keep where it is for 'foreignAt'.
+syncForeign :: Uri -> T.Text -> ServerM ()
+syncForeign uri doc = for_ (uriToFilePath uri) $ \file -> do
+  State {shadow, synced} <- ask
+  Config {backends} <- getConfig
+  let ps = Foreign.pragmas doc
+      -- the module name a Haskell file of it must have, and its name
+      name = "Foreign_" <> T.map (\c -> if isAlphaNum c then c else '_') (T.pack (takeBaseName file))
+  before <- (\ss -> [b | (u, b) <- Map.keys ss, u == uri]) <$> liftIO (readMVar synced)
+  -- a backend whose code is gone gets an empty file
+  for_ (nub (map Foreign.backend ps <> before)) $ \b -> do
+    let be = Map.lookup b backends
+        v = Foreign.virtual (maybe "" Foreign.languageId be) name b ps
+        vfile = takeDirectory file </> T.unpack name <.> maybe "" Foreign.extension be
+        vuri = filePathToUri (Shadow.path shadow vfile)
+        textDocument ver = ["uri" .= vuri, "version" .= ver]
+    srv <- maybe (pure Nothing) (serverFor b (takeDirectory file)) be
+    liftIO $ do
+      Shadow.write shadow vfile (Foreign.text v)
+      modifyMVar_ synced $ \m -> do
+        let old = Map.lookup (uri, b) m
+            changed = maybe True ((/= Foreign.text v) . Foreign.text . contents) old
+            ver = maybe 1 ((+ fromEnum changed) . version) old
+        for_ srv $ \c -> case old of
+          Nothing ->
+            Client.notify c "textDocument/didOpen" $
+              Aeson.object ["textDocument" .= Aeson.object (textDocument ver <> ["languageId" .= maybe "" Foreign.languageId be, "text" .= Foreign.text v])]
+          Just _ | changed ->
+            Client.notify c "textDocument/didChange" $
+              Aeson.object ["textDocument" .= Aeson.object (textDocument ver), "contentChanges" .= [Aeson.object ["text" .= Foreign.text v]]]
+          _ -> pure ()
+        pure (Map.insert (uri, b) (Synced b srv vfile vuri ver v (maybe [] reports old)) m)
+  publish uri
+
+-- | A document was closed: so is its foreign code.
+closeForeign :: Uri -> ServerM ()
+closeForeign uri = do
+  State {shadow, synced} <- ask
+  liftIO $ modifyMVar_ synced $ \m -> do
+    let (gone, kept) = Map.partitionWithKey (\(u, _) _ -> u == uri) m
+    for_ gone $ \s -> do
+      for_ (server s) $ \c -> Client.notify c "textDocument/didClose" (Aeson.object ["textDocument" .= Aeson.object ["uri" .= virtualUri s]])
+      Shadow.remove shadow (virtualFile s)
+    pure kept
+
+-- | The language server of a backend, started the first time it is needed
+-- (in the mirror's copy of the workspace, or of @dir@ if there is none).
+serverFor :: T.Text -> FilePath -> Foreign.Backend -> ServerM (Maybe Client)
+serverFor b dir be = do
+  State {servers, shadow} <- ask
+  known <- Map.lookup b <$> liftIO (readMVar servers)
+  case known of
+    Just c -> pure c
+    Nothing -> do
+      caps <- getClientCapabilities
+      root <- Shadow.path shadow . maybe dir id <$> getRootPath
+      let params =
+            Aeson.object
+              [ "processId" .= Null
+              , "clientInfo" .= Aeson.object ["name" .= ("agdalicious-lsp" :: T.Text)]
+              , "rootUri" .= filePathToUri root
+              , "capabilities" .= caps
+              ]
+      c <- withRunInIO $ \inIO -> Client.start (Foreign.command be) root params (\m p -> inIO (fromServer b m p))
+      when (isNothing c) . logInfo $ "agdalicious-lsp: cannot start " <> T.unwords (map T.pack (Foreign.command be)) <> " for " <> b <> " code"
+      liftIO (modifyMVar_ servers (pure . Map.insert b c))
+      pure c
+
+-- | A notification from a backend's language server: its diagnostics are
+-- the documents'.
+fromServer :: T.Text -> T.Text -> Aeson.Value -> ServerM ()
+fromServer b m params = case Aeson.fromJSON params of
+  Aeson.Success (PublishDiagnosticsParams vuri v ds) | m == "textDocument/publishDiagnostics" -> do
+    State {synced} <- ask
+    hit <- liftIO . modifyMVar synced $ \ss ->
+      pure $ case [k | (k@(_, b'), s) <- Map.toList ss, b' == b, toNormalizedUri (virtualUri s) == toNormalizedUri vuri, maybe True ((== version s) . fromIntegral) v] of
+        k : _ -> (Map.adjust (\s -> s {reports = ds}) k ss, Just (fst k))
+        [] -> (ss, Nothing)
+    for_ hit publish
+  _ -> pure ()
+
+-- | The foreign code at a position of a document, if it is in some: what
+-- its backend's language server has of it, and the position there.
+foreignAt :: Uri -> Position -> ServerM (Maybe (Synced, Position))
+foreignAt uri pos = do
+  ss <- liftIO . readMVar =<< asks synced
+  pure (listToMaybe [(s, p) | ((u, _), s) <- Map.toList ss, u == uri, Just p <- [Foreign.toVirtual (contents s) pos]])
+
+-- | Answer a request about a position: in foreign code, its backend's
+-- language server does (or nobody: @none@), and its answer is mapped back
+-- into the document with @back@; elsewhere @agda@ does.
+orForeign ::
+  (Aeson.ToJSON params, Aeson.FromJSON result, L.HasTextDocument params TextDocumentIdentifier, L.HasPosition params Position) =>
+  T.Text -> params -> result -> (Uri -> Synced -> result -> ServerM result) -> ServerM result -> ServerM result
+orForeign method p none back agda = do
+  let uri = p ^. L.textDocument . L.uri
+  foreignAt uri (p ^. L.position) >>= \case
+    Nothing -> agda
+    Just (s, vp) ->
+      askServer s method (p & L.textDocument . L.uri .~ virtualUri s & L.position .~ vp)
+        >>= maybe (pure none) (back uri s)
+
+-- | Send a request to the language server of some foreign code.
+askServer :: (Aeson.ToJSON params, Aeson.FromJSON result) => Synced -> T.Text -> params -> ServerM (Maybe result)
+askServer s method p = case server s of
+  Nothing -> pure Nothing
+  Just c -> do
+    r <- liftIO (Client.request c method (Aeson.toJSON p))
+    pure $ case Aeson.fromJSON <$> r of
+      Right (Aeson.Success a) -> Just a
+      _ -> Nothing
+
+hoverBack :: Uri -> Synced -> Hover |? Null -> ServerM (Hover |? Null)
+hoverBack _ s = pure . \case
+  InL h | not (empty (h ^. L.contents)) -> InL (h & L.range %~ (>>= Foreign.fromVirtualRange (contents s)))
+  _ -> InR Null
+  where
+    -- as haskell-language-server's hover of a keyword is
+    empty = \case
+      InL (MarkupContent _ t) -> T.null (T.strip t)
+      _ -> False
+
+-- | Locations in the virtual file are in the document; those in the mirror
+-- are in the original files.
+definitionBack :: Uri -> Synced -> Definition |? ([DefinitionLink] |? Null) -> ServerM (Definition |? ([DefinitionLink] |? Null))
+definitionBack uri s r = do
+  sh <- asks shadow
+  let at' u r'
+        | toNormalizedUri u == toNormalizedUri (virtualUri s) = (uri,) <$> Foreign.fromVirtualRange (contents s) r'
+        | otherwise = Just (Uri (Shadow.unshadow sh (getUri u)), r')
+      location (Location u r') = uncurry Location <$> at' u r'
+      link (DefinitionLink (LocationLink origin u target selection)) = do
+        (u', target') <- at' u target
+        (_, selection') <- at' u selection
+        pure (DefinitionLink (LocationLink (origin >>= Foreign.fromVirtualRange (contents s)) u' target' selection'))
+  pure $ case r of
+    InL (Definition (InL l)) -> maybe (InR (InR Null)) (InL . Definition . InL) (location l)
+    InL (Definition (InR ls)) -> InL (Definition (InR (mapMaybe location ls)))
+    InR (InL ls) -> InR (InL (mapMaybe link ls))
+    _ -> r
+
+completionBack :: Uri -> Synced -> [CompletionItem] |? (CompletionList |? Null) -> ServerM ([CompletionItem] |? (CompletionList |? Null))
+completionBack uri s r = pure $ case r of
+  InL is -> InL (map back is)
+  InR (InL l) -> InR (InL (l & L.items %~ map back & L.itemDefaults %~ fmap (L.editRange .~ Nothing)))
+  _ -> r
+  where
+    back = foreignItem uri (backendName s) (contents s)
+
+-- | A completion item of a backend's language server, for the document: its
+-- edits mapped back (those that cannot be are left out), and the item kept
+-- in its data, for resolving it ('resolveItem').
+foreignItem :: Uri -> T.Text -> Foreign.Virtual -> CompletionItem -> CompletionItem
+foreignItem uri b v i =
+  i
+    & L.textEdit %~ (>>= edit)
+    & L.additionalTextEdits %~ fmap (mapMaybe textEdit)
+    & L.data_ ?~ Aeson.object ["foreign" .= b, "uri" .= uri, "item" .= i]
+  where
+    textEdit (TextEdit r t) = (`TextEdit` t) <$> Foreign.fromVirtualRange v r
+    edit (InL e) = InL <$> textEdit e
+    edit (InR (InsertReplaceEdit t ins rep)) = InR <$> (InsertReplaceEdit t <$> Foreign.fromVirtualRange v ins <*> Foreign.fromVirtualRange v rep)
