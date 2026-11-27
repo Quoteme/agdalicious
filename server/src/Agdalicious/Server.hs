@@ -682,15 +682,29 @@ serverFor b dir be = do
               , "rootUri" .= filePathToUri root
               , "capabilities" .= caps
               ]
-      c <- withRunInIO $ \inIO -> Client.start (Foreign.command be) root params (\m p -> inIO (fromServer b m p))
+      let cmd = T.unwords (map T.pack (Foreign.command be))
+          stopped logLines =
+            sendNotification SMethod_WindowShowMessage . ShowMessageParams MessageType_Error $
+              T.unlines (("agdalicious-lsp: " <> cmd <> " (for " <> b <> " code) stopped:") : filter (not . T.null . T.strip) logLines)
+      c <- withRunInIO $ \inIO -> Client.start (Foreign.command be) root params (\m p -> inIO (fromServer b m p)) (inIO . stopped)
       when (isNothing c) . logInfo $ "agdalicious-lsp: cannot start " <> T.unwords (map T.pack (Foreign.command be)) <> " for " <> b <> " code"
       liftIO (modifyMVar_ servers (pure . Map.insert b c))
       pure c
 
 -- | A notification from a backend's language server: its diagnostics are
--- the documents'.
+-- the documents', its messages (such as why it cannot work) the editor's.
 fromServer :: T.Text -> T.Text -> Aeson.Value -> ServerM ()
-fromServer b m params = case Aeson.fromJSON params of
+fromServer b m params
+  | m == "window/showMessage", Aeson.Success (ShowMessageParams t msg) <- Aeson.fromJSON params =
+      sendNotification SMethod_WindowShowMessage (ShowMessageParams t (prefixed msg))
+  | m == "window/logMessage", Aeson.Success (LogMessageParams t msg) <- Aeson.fromJSON params =
+      sendNotification SMethod_WindowLogMessage (LogMessageParams t (prefixed msg))
+  | otherwise = fromServerDiagnostics b m params
+  where
+    prefixed msg = "agdalicious-lsp (" <> b <> " code): " <> msg
+
+fromServerDiagnostics :: T.Text -> T.Text -> Aeson.Value -> ServerM ()
+fromServerDiagnostics b m params = case Aeson.fromJSON params of
   Aeson.Success (PublishDiagnosticsParams vuri v ds) | m == "textDocument/publishDiagnostics" -> do
     State {synced} <- ask
     hit <- liftIO . modifyMVar synced $ \ss ->

@@ -38,7 +38,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim), from the `dist` branch:
 }
 ```
 
-`dist` is the plugin of the latest `master`, laid out for plugin managers and with the tree-sitter parser prebuilt for Linux, macOS and Windows (x86_64 and aarch64), so highlighting works without compiling anything. A GitHub Actions workflow (`.github/workflows/dist.yml`, using `scripts/build-dist.sh`) rebuilds it on every push to `master`. The server, `agdalicious-lsp`, still has to be on your `PATH` (from the [releases](https://github.com/Quoteme/agdalicious/releases) or `nix build .#agdalicious-lsp`).
+`dist` is the plugin of the latest `master`, laid out for plugin managers and with the tree-sitter parser prebuilt for Linux, macOS and Windows (x86_64 and aarch64), so highlighting works without compiling anything. A GitHub Actions workflow (`.github/workflows/dist.yml`, using `scripts/build-dist.sh`) rebuilds it on every push to `master`. The server, `agdalicious-lsp`, still has to be on your `PATH` (from the [releases](https://github.com/Quoteme/agdalicious/releases) or `nix build .#agdalicious-lsp`). `agdalicious-lsp --version` (or `-v`) prints the commit it was built from: the release workflow and the flake compile it in (from `AGDALICIOUS_COMMIT`), a local `cabal build` asks `git`.
 
 Or call `setup` yourself:
 
@@ -68,6 +68,29 @@ Hovering shows, as far as they exist: the type, a short explanation, the definit
 - **Holes**: the goal and what is in scope there.
 
 `scripts/gen-manual.py` generates the bundled part at build time from the manual's sources (the `agda-src` flake input, or the release tarball in CI). Which keywords, pragmas, built-ins and options there are, and where the manual explains them, comes from the manual itself; `scripts/doc-sources.json` has the URLs and the one keyword (`public`) whose section can't be found automatically.
+
+## Foreign code
+
+The code in `FOREIGN` and `COMPILE` pragmas belongs to its backend's language:
+
+```agda
+{-# FOREIGN GHC import qualified Data.Text.IO as Text #-}
+{-# COMPILE GHC putStrLn = Text.putStrLn #-}
+```
+
+tree-sitter highlights it with that language's parser (`queries/injections.scm`: `GHC` is Haskell, other backends are their name in lower case, such as `c` or `cpp`), if neovim has one. The server hands it to that language's server: each backend's code becomes a file of its own, next to the document in the server's mirror, and hovering, going to definitions and completing there are answered by that server, whose diagnostics show up next to Agda's. Of a `COMPILE` pragma, only the expression after `=` is Haskell; the Agda name before it keeps Agda's hover.
+
+The servers are `haskell-language-server-wrapper --lsp` for `GHC`, `clangd` for `C` and `CPP` and `typescript-language-server --stdio` for `JS`. They are started when first needed, by `agdalicious-lsp` and not by neovim, so `:checkhealth vim.lsp` does not list them. They have to be on the `PATH` the server sees. With nix, for the server with haskell-language-server (and the GHC it needs, and Agda):
+
+```sh
+nix shell github:Quoteme/agdalicious#agdalicious-lsp nixpkgs#haskell-language-server nixpkgs#ghc nixpkgs#agda
+```
+
+(`.#agdalicious-lsp` in a checkout.) haskell-language-server only works with the very GHC it was built with: take both from the same nixpkgs, as here (a `ghc` of the same version from another nixpkgs does not do, the wrapper then stops with "GHC ABIs don't match"). If a server stops, the server shows why, with the end of its log. Other servers, or none, can be set in the plugin's options:
+
+```lua
+lsp = { foreign = { GHC = { command = { "haskell-language-server", "--lsp" } }, JS = vim.NIL } }
+```
 
 ## Completion
 
