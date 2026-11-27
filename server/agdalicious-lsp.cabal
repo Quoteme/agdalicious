@@ -18,16 +18,20 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Agdalicious.Agda
-    Agdalicious.Definition
+    Agdalicious.Document
+    Agdalicious.Hover
     Agdalicious.Infoview
+    Agdalicious.Manual
     Agdalicious.Server
     Agdalicious.Shadow
+    Agdalicious.Source
   build-depends:
     , aeson      >=2.0
     , async
     , base       >=4.18 && <5
     , containers
     , directory
+    , file-embed
     , filepath
     , lens
     , lens-aeson

@@ -3,3 +3,4 @@ result-*
 server/dist-newstyle/
 *.agdai
 _build/
+server/data/

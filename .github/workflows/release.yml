@@ -12,6 +12,8 @@ permissions:
 
 env:
   GHC_VERSION: "9.10"
+  # the Agda whose user manual the hover texts come from (as in flake.nix)
+  AGDA_VERSION: "2.8.0"
 
 jobs:
   build:
@@ -56,6 +58,14 @@ jobs:
           path: ${{ steps.setup.outputs.cabal-store }}
           key: ${{ runner.os }}-${{ runner.arch }}-ghc-${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('server/dist-newstyle/cache/plan.json') }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-ghc-${{ steps.setup.outputs.ghc-version }}-
+
+      - name: Generate hover texts from the Agda user manual
+        working-directory: .
+        run: |
+          curl -sSL "https://github.com/agda/agda/archive/refs/tags/v${AGDA_VERSION}.tar.gz" | tar xz
+          mkdir -p server/data
+          "$(command -v python3 || command -v python)" scripts/gen-manual.py \
+            "agda-${AGDA_VERSION}/doc/user-manual" scripts/doc-sources.json > server/data/manual.json
 
       - name: Build
         run: cabal build exe:agdalicious-lsp

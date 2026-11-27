@@ -7,7 +7,8 @@ module Agdalicious.Agda (Agda, start, command) where
 import Control.Concurrent.MVar
 import Control.Exception (onException)
 import Control.Lens ((^?))
-import Control.Monad (unless)
+import Control.Monad (unless, when)
+import Data.IORef
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens (key, _String)
@@ -20,8 +21,9 @@ import System.Directory (removeFile)
 import System.IO
 import System.Process
 
--- | stdin/stdout of the process; the lock makes commands run one at a time.
-newtype Agda = Agda (MVar (Handle, Handle))
+-- | stdin/stdout of the process, and the file it loaded last (if it is
+-- certain); the lock makes commands run one at a time.
+newtype Agda = Agda (MVar (Handle, Handle, IORef (Maybe FilePath)))
 
 start :: IO Agda
 start = do
@@ -29,23 +31,35 @@ start = do
     createProcess (proc "agda" ["--interaction-json"]) {std_in = CreatePipe, std_out = CreatePipe}
   mapM_ (`hSetEncoding` utf8) [i, o]
   _ <- untilPrompt o
-  Agda <$> newMVar (i, o)
+  Agda <$> (newMVar . (i,o,) =<< newIORef Nothing)
 
 -- | Run an interaction command (e.g. @Cmd_load "/x/A.agda" []@) for a file
 -- and return Agda's responses, with highlighting (@info.payload@ of each
 -- @HighlightingInfo@) for what it checked.
 --
+-- Other commands (goal and top-level ones, e.g. @Cmd_infer_toplevel AsIs
+-- "_+_"@) act on the file loaded last: if that is another one, the file is
+-- loaded first.
+--
 -- Cancelling the calling thread (e.g. with 'Control.Concurrent.Async.cancel')
 -- aborts the command in Agda too, and leaves the process ready for the next one.
 command :: Agda -> FilePath -> String -> IO [Aeson.Value]
-command (Agda lock) file cmd = withMVar lock $ \(i, o) -> do
+command (Agda lock) file cmd = withMVar lock $ \(i, o, loaded) -> do
   let send c = hPutStrLn i ("IOTCM " <> show file <> " NonInteractive Indirect (" <> c <> ")") >> hFlush i
       batch = untilPrompt o >>= parse
       -- An idle Cmd_abort prints nothing, so mark the end with a version request.
       resync = send "Cmd_abort" >> send "Cmd_show_version" >> drain
       drain = batch >>= \rs -> unless (any (\r -> r ^? key "info" . key "kind" == Just "Version") rs) drain
-  send cmd
-  batch `onException` resync
+      run c
+        | "Cmd_load" `isPrefixOf` c = do
+            writeIORef loaded Nothing -- until it is done
+            rs <- send c >> batch `onException` resync
+            rs <$ writeIORef loaded (Just file)
+        | otherwise = send c >> batch `onException` resync
+  current <- readIORef loaded
+  when (not ("Cmd_load" `isPrefixOf` cmd) && current /= Just file) $
+    () <$ run ("Cmd_load " <> show file <> " []")
+  run cmd
 
 -- | Decode a batch of responses. Highlighting comes in temporary files
 -- (@Indirect@, which keeps the pipe small): read them in and delete them.

@@ -4,9 +4,15 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    # the sources of the Agda user manual, for the hover texts; keep the
+    # version in step with nixpkgs' agda
+    agda-src = {
+      url = "github:agda/agda/v2.8.0";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, agda-src }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -14,7 +20,17 @@
 
         agda = pkgs.agda.withPackages (p: [ p.standard-library ]);
 
-        agdalicious-lsp = hpkgs.callCabal2nix "agdalicious-lsp" ./server { };
+        # Hover texts for keywords, pragmas, options and built-ins, generated
+        # from the user manual and compiled into the server.
+        agdalicious-manual = pkgs.runCommand "agdalicious-manual.json" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python3 ${./scripts/gen-manual.py} ${agda-src}/doc/user-manual ${./scripts/doc-sources.json} > $out
+        '';
+
+        agdalicious-lsp = pkgs.haskell.lib.overrideCabal (hpkgs.callCabal2nix "agdalicious-lsp" ./server { }) (old: {
+          preBuild = (old.preBuild or "") + ''
+            mkdir -p data && cp ${agdalicious-manual} data/manual.json
+          '';
+        });
 
         agdalicious-nvim = pkgs.vimUtils.buildVimPlugin {
           pname = "agdalicious-nvim";
@@ -40,7 +56,7 @@
       {
         packages = {
           default = agdalicious-lsp;
-          inherit agdalicious-lsp agdalicious-nvim;
+          inherit agdalicious-lsp agdalicious-nvim agdalicious-manual;
           nvim = nvim-dev;
         };
 
@@ -61,6 +77,8 @@
             pkgs.stylua
           ];
           shellHook = ''
+            # the generated hover texts, for `cabal build` (see scripts/gen-manual.py)
+            if [ -d server ]; then mkdir -p server/data && ln -sfn ${agdalicious-manual} server/data/manual.json; fi
             echo "agdalicious dev shell"
             echo "  build server:  (cd server && cabal build)"
             echo "  try plugin:    nix run .#nvim -- test/Example.agda"

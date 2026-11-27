@@ -5,7 +5,7 @@ Agda support for neovim, modelled on lean.nvim:
 - `server/`: **agdalicious-lsp**, a Haskell language server. It does the actual work: loading files in Agda, goals, diagnostics.
 - `nvim/`: a thin Lua plugin. It starts the server, shows the infoview (`:AgdaInfo`), expands `\`-abbreviations as you type (`\lambda` → `λ`, `\to` → `→`, `\bN` → `ℕ`, ...) and makes `<C-a>`/`<C-x>` count in sub- and superscripts.
 
-Every open and edit type-checks the buffer (unsaved contents included) in a persistent `agda --interaction-json` process, along with the other open files that may import it, and shows errors and warnings as diagnostics. Go to definition (`vim.lsp.buf.definition()`, `gd` with most configs) uses the definition sites Agda reports while checking. The infoview request (`agda/infoview`) still returns placeholder text.
+Every open and edit type-checks the buffer (unsaved contents included) in a persistent `agda --interaction-json` process, along with the other open files that may import it, and shows errors and warnings as diagnostics. Go to definition (`vim.lsp.buf.definition()`, `gd` with most configs) uses the definition sites Agda reports while checking, and hovering (`K`) explains what is under the cursor (see [Hover](#hover)). The infoview request (`agda/infoview`) still returns placeholder text.
 
 ## Development
 
@@ -15,7 +15,10 @@ nix develop                              # ghc, cabal, hls, agda + stdlib, neovi
 nix build .#agdalicious-lsp               # the server
 nix build .#agdalicious-nvim              # the plugin, as a vim plugin derivation
 nix run .#nvim -- test/Example.agda      # throwaway neovim with both wired up
+nix build .#agdalicious-manual            # the hover texts from the Agda user manual
 ```
+
+The dev shell links the generated hover texts to `server/data/manual.json`, where `cabal build` compiles them in. Without that file the server still builds, just without them.
 
 ## Using the plugin
 
@@ -56,6 +59,16 @@ An abbreviation is replaced as soon as it can't be extended any further (`\lambd
 ### Sub- and superscripts
 
 In Agda buffers `<C-a>` and `<C-x>` also increment and decrement numbers written in sub- or superscript digits: `x₁` → `x₂`, `n⁹` → `n¹⁰`, `x₀` → `x₋₁`. They pick the number under or after the cursor, as the built-in commands do, and take a count and repeat with `.`. Plain numbers are left to the built-in commands. Turn this off with `increment = { enabled = false }`.
+
+## Hover
+
+Hovering shows, as far as they exist: the type, a short explanation, the definition (if short) or an example, links to the documentation, and a long explanation.
+
+- **Names**, from any library: the type comes from Agda. The rest is read from the source of the definition when you hover, following the standard library's conventions: the comment just above a declaration explains it, a comment under a line of dashes is the heading of the part of the file that follows, and the comment at the top of a file explains the module. Libraries with HTML documentation (configured in `scripts/doc-sources.json`; the standard library is) get a link to the definition there, others to the file.
+- **Keywords, symbols, pragmas, options, built-ins and primitives** (`data`, `with`, `OPTIONS`, `--safe`, `Set`, `ℕ` from `Agda.Builtin.Nat`, ...): from the [Agda user manual](https://agda.readthedocs.io/), bundled with the server.
+- **Holes**: the goal and what is in scope there.
+
+`scripts/gen-manual.py` generates the bundled part at build time from the manual's sources (the `agda-src` flake input, or the release tarball in CI). Which keywords, pragmas, built-ins and options there are, and where the manual explains them, comes from the manual itself; `scripts/doc-sources.json` has the URLs and the one keyword (`public`) whose section can't be found automatically.
 
 ## Protocol
 

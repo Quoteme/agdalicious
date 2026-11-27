@@ -1,0 +1,9 @@
+{
+  "manual": "https://agda.readthedocs.io/en/v{version}/",
+  "maxLength": 6000,
+  "preferred": ["language/"],
+  "overrides": { "public": "module-basics" },
+  "libraries": {
+    "standard-library": "https://agda.github.io/agda-stdlib/v{version}/{module}.html#{offset}"
+  }
+}
