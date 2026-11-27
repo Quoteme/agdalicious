@@ -2,7 +2,7 @@
 --
 -- Keeping one process alive lets Agda reuse already-checked imports, so
 -- reloading a file only re-checks what changed.
-module Agdalicious.Agda (Agda, start, command) where
+module Agdalicious.Agda (Agda, start, command, knows) where
 
 import Control.Concurrent.MVar
 import Control.Exception (onException)
@@ -12,7 +12,7 @@ import Data.IORef
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens (key, _String)
-import Data.List (isPrefixOf)
+import Data.List (isInfixOf, isPrefixOf)
 import Data.Maybe (mapMaybe)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
@@ -60,6 +60,17 @@ command (Agda lock) file cmd = withMVar lock $ \(i, o, loaded) -> do
   when (not ("Cmd_load" `isPrefixOf` cmd) && current /= Just file) $
     () <$ run ("Cmd_load " <> show file <> " []")
   run cmd
+
+-- | Whether this Agda knows a command (for a goal: @Cmd_give WithoutForce 0
+-- noRange ""@): one it can't read, it says so instead of running it. It is
+-- run for a file that does not exist, so that it changes nothing (and the
+-- next command loads its file again).
+knows :: Agda -> String -> IO Bool
+knows (Agda lock) cmd = withMVar lock $ \(i, o, loaded) -> do
+  hPutStrLn i ("IOTCM \"/agdalicious-probe.agda\" None Direct (" <> cmd <> ")") >> hFlush i
+  out <- untilPrompt o
+  writeIORef loaded Nothing
+  pure (not ("cannot read" `isInfixOf` out))
 
 -- | Decode a batch of responses. Highlighting comes in temporary files
 -- (@Indirect@, which keeps the pipe small): read them in and delete them.

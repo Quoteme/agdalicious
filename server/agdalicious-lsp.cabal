@@ -21,6 +21,8 @@ library
     Agdalicious.Client
     Agdalicious.CodeAction
     Agdalicious.CodeAction.Fix
+    Agdalicious.CodeAction.GoalCommand
+    Agdalicious.CodeAction.GoalResult
     Agdalicious.CodeAction.ImportModule
     Agdalicious.CodeAction.ImportSuggestion
     Agdalicious.CodeAction.QuestionToMeta

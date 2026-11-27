@@ -5,9 +5,13 @@ module Agdalicious.CodeAction
   , module Agdalicious.CodeAction.ImportSuggestion
   , module Agdalicious.CodeAction.ImportModule
   , module Agdalicious.CodeAction.QuestionToMeta
+  , module Agdalicious.CodeAction.GoalCommand
+  , module Agdalicious.CodeAction.GoalResult
   ) where
 
 import Agdalicious.CodeAction.Fix
+import Agdalicious.CodeAction.GoalCommand
+import Agdalicious.CodeAction.GoalResult
 import Agdalicious.CodeAction.ImportModule
 import Agdalicious.CodeAction.ImportSuggestion
 import Agdalicious.CodeAction.QuestionToMeta

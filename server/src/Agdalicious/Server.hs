@@ -39,7 +39,7 @@ import Control.Concurrent.MVar
 import Control.Lens ((%~), (&), (.~), (?~), (^.), (^..), (^?))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.IO.Unlift (withRunInIO)
-import Control.Monad (guard, unless, void, when)
+import Control.Monad (filterM, guard, unless, void, when)
 import Control.Monad.Reader (ReaderT, ask, asks, runReaderT)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
@@ -72,10 +72,12 @@ type InfoviewMethod = 'Method_CustomMethod "agda/infoview" :: Method 'ClientToSe
 
 run :: IO Int
 run = Shadow.with $ \shadow -> do
+  agdaProcess <- Agda.start
+  -- the goal commands this Agda has
+  known <- filterM (Agda.knows agdaProcess . (\c -> CodeAction.commandLine c 0 "")) CodeAction.goalCommands
   st <-
-    State
-      <$> Agda.start
-      <*> pure shadow
+    State agdaProcess
+      <$> pure shadow
       <*> newMVar mempty
       <*> newMVar mempty
       <*> Libraries.config
@@ -85,6 +87,7 @@ run = Shadow.with $ \shadow -> do
       <*> newMVar mempty
       <*> newMVar mempty
       <*> newMVar mempty
+      <*> pure known
   runServer
     ServerDefinition
       { parseConfig = parseSettings
@@ -98,6 +101,7 @@ run = Shadow.with $ \shadow -> do
           defaultOptions
             { optTextDocumentSync = Just syncOptions
             , optCompletionTriggerCharacters = Just ".-"
+            , optExecuteCommandCommands = Just [goalCommandName]
             }
       }
 
@@ -132,6 +136,8 @@ data State = State
   -- ^ each document's foreign code for each backend
   , agdaDiagnostics :: MVar (Map.Map Uri [Diagnostic])
   -- ^ what each document's last load said about it
+  , goalCommands :: [CodeAction.GoalCommand]
+  -- ^ what the Agda in use can do with a goal
   }
 
 -- | A document's foreign code for one backend, as its language server has it.
@@ -203,6 +209,13 @@ handlers =
     , requestHandler SMethod_TextDocumentCodeAction $ \req respond -> do
         let p = req ^. L.params
         respond . Right . InL =<< codeActions (p ^. L.textDocument . L.uri) (p ^. L.range) (p ^. L.context . L.diagnostics)
+    , requestHandler SMethod_WorkspaceExecuteCommand $ \req respond -> do
+        let p = req ^. L.params
+        case (p ^. L.command, traverse Aeson.fromJSON (maybe [] id (p ^. L.arguments))) of
+          (c, Aeson.Success [Aeson.String u, Aeson.Number g, Aeson.String cmd]) | c == goalCommandName -> do
+            runGoalCommand (Uri u) (round g) cmd
+            respond (Right (InR Null))
+          _ -> respond (Left (TResponseError (InR ErrorCodes_InvalidParams) "unknown command" Nothing))
     , requestHandler SMethod_CompletionItemResolve $ \req respond ->
         respond . Right =<< resolveItem (req ^. L.params)
     , requestHandler SMethod_TextDocumentSemanticTokensFull $ \_ respond ->
@@ -448,7 +461,16 @@ codeActions uri cursor ds = do
         ]
       holeActions =
         [InR (action CodeActionKind_RefactorRewrite Nothing False f) | f <- CodeAction.questionToMeta questions cursor]
-  fmap ((<> holeActions) . concat) . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
+  commands <- asks goalCommands
+  -- what Agda can do with the hole the cursor is in
+  let goalActions =
+        [ InR (CodeAction (CodeAction.menuTitle c) (Just CodeActionKind_RefactorRewrite) Nothing Nothing Nothing Nothing (Just command) Nothing)
+        | Just off <- [offsetOf (cursor ^. L.start) rope]
+        , Just g <- [goalAt off =<< fmap Doc.goals loaded]
+        , c <- commands
+        , let command = Command (CodeAction.menuTitle c) goalCommandName (Just [Aeson.toJSON uri, Aeson.toJSON (goal g), Aeson.toJSON (CodeAction.agdaCommand c)])
+        ]
+  fmap ((<> (goalActions <> holeActions)) . concat) . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
     let suggested = CodeAction.notInScope doc (d ^. L.message) (d ^. L.range)
         imports = filter (("Import " `T.isPrefixOf`) . CodeAction.title) suggested
     found <- case CodeAction.missingName (d ^. L.message) of
@@ -491,6 +513,30 @@ importsOf uri doc n = do
   fmap concat . for candidates $ \(m, d) -> do
     names <- map fst <$> exports uri doc m
     pure [CodeAction.importModule doc m d | d `elem` names]
+
+-- | The command that runs a goal command, with the document, the goal and the
+-- command as its arguments.
+goalCommandName :: T.Text
+goalCommandName = "agdalicious.goal"
+
+-- | Run an Agda command on a goal (with the text in its hole), and do what
+-- its responses say: edit the document, or show a message.
+runGoalCommand :: Uri -> Int -> T.Text -> ServerM ()
+runGoalCommand uri g cmd = do
+  rope <- maybe mempty (^. file_text) <$> getVirtualFile (toNormalizedUri uri)
+  loaded <- Map.lookup uri <$> (liftIO . readMVar =<< asks documents)
+  let holes = maybe [] Doc.goals loaded
+      hole n = listToMaybe [CodeAction.Hole (rangeOf (goalFrom h) (goalTo h) rope) (inside (slice (goalFrom h) (goalTo h) rope)) | h <- holes, goal h == n]
+      inside t = maybe "" T.strip (T.stripPrefix "{!" t >>= T.stripSuffix "!}")
+  case hole g of
+    Nothing -> pure ()
+    Just h -> do
+      rs <- query uri (CodeAction.commandLine (CodeAction.GoalCommand "" cmd) g (CodeAction.holeText h))
+      let CodeAction.Outcome {CodeAction.changes, CodeAction.notes} = CodeAction.outcome (T.lines (Rope.toText rope)) hole g rs
+      unless (null changes) . void $
+        sendRequest SMethod_WorkspaceApplyEdit (ApplyWorkspaceEditParams (Just cmd) (WorkspaceEdit (Just (Map.singleton uri [TextEdit r t | (r, t) <- changes])) Nothing Nothing)) (const (pure ()))
+      for_ notes $ \(err, t) ->
+        sendNotification SMethod_WindowShowMessage (ShowMessageParams (if err then MessageType_Error else MessageType_Info) t)
 
 -- * Completion
 
