@@ -18,6 +18,7 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Agdalicious.Agda
+    Agdalicious.Definition
     Agdalicious.Infoview
     Agdalicious.Server
     Agdalicious.Shadow
@@ -35,6 +36,8 @@ library
     , mtl
     , process
     , text
+    , text-rope
+    , transformers
     , unix
     , unliftio-core
 

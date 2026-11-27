@@ -4,12 +4,15 @@
 -- diagnostics) is meant to live here, so editor plugins stay thin.
 --
 -- Files are type-checked by one @agda --interaction-json@ process
--- ("Agdalicious.Agda"); 'load' turns its errors and warnings into diagnostics.
+-- ("Agdalicious.Agda"); 'load' turns its errors and warnings into diagnostics,
+-- and keeps the definition sites from its highlighting ("Agdalicious.Definition").
 -- Agda checks the editor's contents, not the saved files: see "Agdalicious.Shadow".
 module Agdalicious.Server (run) where
 
 import Agdalicious.Agda (Agda)
 import Agdalicious.Agda qualified as Agda
+import Agdalicious.Definition (Name (..), nameAt, offsetOf, positionOf)
+import Agdalicious.Definition qualified as Definition
 import Agdalicious.Infoview
 import Agdalicious.Shadow (Shadow)
 import Agdalicious.Shadow qualified as Shadow
@@ -18,7 +21,10 @@ import Control.Concurrent.MVar
 import Control.Lens ((^.), (^..))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.IO.Unlift (withRunInIO)
+import Control.Monad (unless)
 import Control.Monad.Reader (ReaderT, asks, runReaderT)
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens (key, values, _String)
 import Data.Foldable (for_)
@@ -26,18 +32,21 @@ import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as T
+import Data.Text.IO.Utf8 qualified as T
+import Data.Text.Mixed.Rope (Rope)
+import Data.Text.Mixed.Rope qualified as Rope
 import Language.LSP.Protocol.Lens qualified as L
 import Language.LSP.Protocol.Message
 import Language.LSP.Protocol.Types
 import Language.LSP.Server
-import Language.LSP.VFS (vfsMap, virtualFileText)
+import Language.LSP.VFS (file_text, vfsMap, virtualFileText)
 import Text.Read (readMaybe)
 
 type InfoviewMethod = 'Method_CustomMethod "agda/infoview" :: Method 'ClientToServer 'Request
 
 run :: IO Int
 run = Shadow.with $ \shadow -> do
-  st <- State <$> Agda.start <*> pure shadow <*> newMVar mempty
+  st <- State <$> Agda.start <*> pure shadow <*> newMVar mempty <*> newMVar mempty
   runServer
     ServerDefinition
       { parseConfig = \cfg _ -> Right cfg
@@ -66,6 +75,8 @@ data State = State
   -- ^ the mirror Agda reads documents from
   , running :: MVar (Map.Map Uri (Async ()))
   -- ^ the load currently running for each document
+  , definitions :: MVar (Map.Map Uri [Name])
+  -- ^ the names in each document, as of its last load
   }
 
 -- | The monad the handlers run in: the LSP monad, with the shared state.
@@ -90,6 +101,10 @@ handlers =
         reloadOpen uri
     , notificationHandler SMethod_SetTrace $ \_ ->
         pure ()
+    , requestHandler SMethod_TextDocumentDefinition $ \req respond -> do
+        let p = req ^. L.params
+        loc <- definition (p ^. L.textDocument . L.uri) (p ^. L.position)
+        respond (Right (maybe (InR (InR Null)) (InL . Definition . InL) loc))
     , requestHandler SMethod_TextDocumentSemanticTokensFull $ \_ respond ->
         -- TODO: Agda's highlighting information
         respond (Right (InR Null))
@@ -125,9 +140,12 @@ reloadOpen uri = do
 -- warnings as diagnostics.
 load :: Uri -> ServerM ()
 load uri = for_ (uriToFilePath uri) $ \file -> do
-  State {agda, shadow} <- asks id
+  State {agda, shadow, definitions} <- asks id
   let copy = Shadow.path shadow file
   responses <- liftIO (Agda.command agda copy ("Cmd_load " <> show copy <> " []"))
+  -- a load that fails early has no highlighting: keep the previous names then
+  let names = [n {site = T.unpack (Shadow.unshadow shadow (T.pack (site n)))} | n <- Definition.names responses]
+  unless (null names) . liftIO $ modifyMVar_ definitions (pure . Map.insert uri names)
   sendNotification SMethod_TextDocumentPublishDiagnostics . PublishDiagnosticsParams uri Nothing $
     map (diagnostic file . fmap (Shadow.unshadow shadow)) (concatMap messagesOf responses)
 
@@ -157,6 +175,22 @@ range t = case map (traverse (readMaybe . T.unpack) . T.splitOn ".") (T.splitOn 
   _ -> Nothing
   where
     pos l c l' c' = Just (Range (Position (l - 1) (c - 1)) (Position (l' - 1) (c' - 1)))
+
+-- | Where the name at a position is defined, as of the document's last load.
+definition :: Uri -> Position -> ServerM (Maybe Location)
+definition uri pos = runMaybeT $ do
+  text <- MaybeT (fmap (^. file_text) <$> getVirtualFile (toNormalizedUri uri))
+  off <- hoistMaybe (offsetOf pos text)
+  defs <- liftIO . readMVar =<< lift (asks definitions)
+  Name {site, siteOffset} <- hoistMaybe (nameAt off =<< Map.lookup uri defs)
+  p <- positionOf siteOffset <$> lift (textOf site)
+  pure (Location (filePathToUri site) (Range p p))
+
+-- | A file's text: the editor's if it is open, else the saved one.
+textOf :: FilePath -> ServerM Rope
+textOf f =
+  getVirtualFile (toNormalizedUri (filePathToUri f))
+    >>= maybe (liftIO (Rope.fromText <$> T.readFile f)) (pure . (^. file_text))
 
 -- | Load a file in the background, cancelling a load of it that is still
 -- running, so only the newest contents get checked.
