@@ -14,6 +14,29 @@ function M.start(buf, config)
   }, { bufnr = buf })
 end
 
+-- A goal command (code action in a hole, see the server's runGoalCommand):
+-- if it works on what is in the hole and the hole is empty, ask for it,
+-- as Agda's Emacs mode does, then have the server run it.
+vim.lsp.commands["agdalicious.goal"] = function(command, ctx)
+  local client = vim.lsp.get_client_by_id(ctx.client_id)
+  local args = command.arguments
+  local run = function(input)
+    local a = vim.list_slice(args, 1, 4)
+    a[5] = input
+    client:request("workspace/executeCommand", { command = command.command, arguments = a }, nil, ctx.bufnr)
+  end
+  local prompt, inside = args[4], args[5]
+  if type(prompt) == "string" and (inside == nil or inside == "") then
+    vim.ui.input({ prompt = command.title .. " (" .. prompt .. "): " }, function(input)
+      if input ~= nil then
+        run(input)
+      end
+    end)
+  else
+    run(inside)
+  end
+end
+
 --- The agdalicious client attached to `buf`, if any.
 function M.client(buf)
   return vim.lsp.get_clients({ bufnr = buf, name = M.name })[1]

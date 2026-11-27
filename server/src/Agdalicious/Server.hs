@@ -213,8 +213,9 @@ handlers =
     , requestHandler SMethod_WorkspaceExecuteCommand $ \req respond -> do
         let p = req ^. L.params
         case (p ^. L.command, traverse Aeson.fromJSON (maybe [] id (p ^. L.arguments))) of
-          (c, Aeson.Success [Aeson.String u, Aeson.Number g, Aeson.String cmd]) | c == goalCommandName -> do
-            runGoalCommand (Uri u) (round g) cmd
+          (c, Aeson.Success (Aeson.String u : Aeson.Number g : Aeson.String cmd : rest)) | c == goalCommandName -> do
+            -- the editor may have asked for the input (the hole being empty)
+            runGoalCommand (Uri u) (round g) cmd (case drop 1 rest of Aeson.String i : _ -> Just i; _ -> Nothing)
             respond (Right (InR Null))
           _ -> respond (Left (TResponseError (InR ErrorCodes_InvalidParams) "unknown command" Nothing))
     , requestHandler SMethod_CompletionItemResolve $ \req respond ->
@@ -469,7 +470,7 @@ codeActions uri cursor ds = do
         | Just off <- [offsetOf (cursor ^. L.start) rope]
         , Just g <- [goalAt off =<< fmap Doc.goals loaded]
         , c <- commands
-        , let command = Command (CodeAction.menuTitle c) goalCommandName (Just [Aeson.toJSON uri, Aeson.toJSON (goal g), Aeson.toJSON (CodeAction.agdaCommand c)])
+        , let command = Command (CodeAction.menuTitle c) goalCommandName (Just [Aeson.toJSON uri, Aeson.toJSON (goal g), Aeson.toJSON (CodeAction.agdaCommand c), Aeson.toJSON (CodeAction.prompt c), Aeson.toJSON (holeContents (slice (goalFrom g) (goalTo g) rope))])
         ]
   fmap ((<> (goalActions <> holeActions)) . concat) . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
     let suggested = CodeAction.notInScope doc (d ^. L.message) (d ^. L.range)
@@ -515,25 +516,26 @@ importsOf uri doc n = do
     names <- map fst <$> exports uri doc m
     pure [CodeAction.importModule doc m d | d `elem` names]
 
--- | The command that runs a goal command, with the document, the goal and the
--- command as its arguments.
+-- | The command that runs a goal command. Its arguments: the document, the
+-- goal, the command, what to ask for if the hole is empty ('Nothing' if
+-- nothing), and the text in the hole, which an editor that asks replaces
+-- with the answer (see @nvim/lua/agdalicious/lsp.lua@).
 goalCommandName :: T.Text
 goalCommandName = "agdalicious.goal"
 
 -- | Run an Agda command on a goal (with the text in its hole), and do what
 -- its responses say: edit the document, or show a message.
-runGoalCommand :: Uri -> Int -> T.Text -> ServerM ()
-runGoalCommand uri g cmd = do
+runGoalCommand :: Uri -> Int -> T.Text -> Maybe T.Text -> ServerM ()
+runGoalCommand uri g cmd input = do
   rope <- maybe mempty (^. file_text) <$> getVirtualFile (toNormalizedUri uri)
   loaded <- Map.lookup uri <$> (liftIO . readMVar =<< asks documents)
   let holes = maybe [] Doc.goals loaded
-      hole n = listToMaybe [CodeAction.Hole (rangeOf (goalFrom h) (goalTo h) rope) (inside (slice (goalFrom h) (goalTo h) rope)) | h <- holes, goal h == n]
-      inside t = maybe "" T.strip (T.stripPrefix "{!" t >>= T.stripSuffix "!}")
+      hole n = listToMaybe [CodeAction.Hole (rangeOf (goalFrom h) (goalTo h) rope) (holeContents (slice (goalFrom h) (goalTo h) rope)) | h <- holes, goal h == n]
   let tell kind = sendNotification SMethod_WindowShowMessage . ShowMessageParams kind
   case hole g of
     Nothing -> tell MessageType_Warning "agdalicious: that hole is gone (the file changed since it was last checked): try again once it is checked"
     Just h -> do
-      rs <- query uri (CodeAction.commandLine (CodeAction.GoalCommand "" cmd) g (CodeAction.holeText h))
+      rs <- query uri (CodeAction.commandLine (CodeAction.GoalCommand "" cmd Nothing) g (maybe (CodeAction.holeText h) id input))
       let CodeAction.Outcome {CodeAction.changes, CodeAction.notes} = CodeAction.outcome (T.lines (Rope.toText rope)) hole g rs
       unless (null changes) . void $
         sendRequest SMethod_WorkspaceApplyEdit (ApplyWorkspaceEditParams (Just cmd) (WorkspaceEdit (Just (Map.singleton uri [TextEdit r t | (r, t) <- changes])) Nothing Nothing)) (const (pure ()))
@@ -544,6 +546,10 @@ runGoalCommand uri g cmd = do
         if T.null (CodeAction.holeText h)
           then "Agda did nothing: this command works on what is in the hole. Write it there ({! … !}, see \"Expand ? to {! !}\") and try again"
           else "Agda did nothing with " <> CodeAction.holeText h
+
+-- | The text in a hole (@{! x !}@: @x@; @?@: nothing).
+holeContents :: T.Text -> T.Text
+holeContents t = maybe "" T.strip (T.stripPrefix "{!" t >>= T.stripSuffix "!}")
 
 -- * Completion
 

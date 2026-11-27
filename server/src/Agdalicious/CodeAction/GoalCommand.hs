@@ -14,36 +14,37 @@ module Agdalicious.CodeAction.GoalCommand (GoalCommand (..), goalCommands, comma
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | A goal command: its title, and the Agda command with its arguments up to
--- the goal's (such as @Cmd_give WithoutForce@).
-data GoalCommand = GoalCommand {menuTitle :: Text, agdaCommand :: Text}
+-- | A goal command: its title, the Agda command with its arguments up to the
+-- goal's (such as @Cmd_give WithoutForce@), and, if it works on what is in
+-- the hole, what to ask for when the hole is empty (as the Emacs mode does).
+data GoalCommand = GoalCommand {menuTitle :: Text, agdaCommand :: Text, prompt :: Maybe Text}
   deriving (Show)
 
 goalCommands :: [GoalCommand]
 goalCommands =
-  [ GoalCommand "Give" "Cmd_give WithoutForce"
-  , GoalCommand "Give (with force)" "Cmd_give WithForce"
-  , GoalCommand "Elaborate and give" "Cmd_elaborate_give Simplified"
-  , GoalCommand "Refine" "Cmd_refine"
-  , GoalCommand "Refine or introduce" "Cmd_refine_or_intro False"
-  , GoalCommand "Introduce" "Cmd_intro False"
-  , GoalCommand "Introduce (pattern-matching λ)" "Cmd_intro True"
-  , GoalCommand "Case split" "Cmd_make_case"
-  , GoalCommand "Auto (proof search)" "Cmd_autoOne AsIs"
-  , GoalCommand "Solve constraints" "Cmd_solveOne Simplified"
-  , GoalCommand "Goal type" "Cmd_goal_type Simplified"
-  , GoalCommand "Context" "Cmd_context Simplified"
-  , GoalCommand "Goal type and context" "Cmd_goal_type_context Simplified"
-  , GoalCommand "Goal type, context and inferred type" "Cmd_goal_type_context_infer Simplified"
-  , GoalCommand "Goal type, context and checked type" "Cmd_goal_type_context_check Simplified"
-  , GoalCommand "Infer type" "Cmd_infer Simplified"
-  , GoalCommand "Helper function type" "Cmd_helper_function AsIs"
-  , GoalCommand "Evaluate to normal form" "Cmd_compute DefaultCompute"
-  , GoalCommand "Evaluate to head normal form" "Cmd_compute HeadCompute"
-  , GoalCommand "Evaluate, ignoring abstract" "Cmd_compute IgnoreAbstract"
-  , GoalCommand "Evaluate and show (with its Show instance)" "Cmd_compute UseShowInstance"
-  , GoalCommand "Why in scope" "Cmd_why_in_scope"
-  , GoalCommand "Module contents" "Cmd_show_module_contents Simplified"
+  [ GoalCommand "Give" "Cmd_give WithoutForce" (Just "expression to give")
+  , GoalCommand "Give (with force)" "Cmd_give WithForce" (Just "expression to give")
+  , GoalCommand "Elaborate and give" "Cmd_elaborate_give Simplified" (Just "expression to elaborate and give")
+  , GoalCommand "Refine" "Cmd_refine" Nothing
+  , GoalCommand "Refine or introduce" "Cmd_refine_or_intro False" Nothing
+  , GoalCommand "Introduce" "Cmd_intro False" Nothing
+  , GoalCommand "Introduce (pattern-matching λ)" "Cmd_intro True" Nothing
+  , GoalCommand "Case split" "Cmd_make_case" (Just "pattern variables to case (empty for split on result)")
+  , GoalCommand "Auto (proof search)" "Cmd_autoOne AsIs" Nothing
+  , GoalCommand "Solve constraints" "Cmd_solveOne Simplified" Nothing
+  , GoalCommand "Goal type" "Cmd_goal_type Simplified" Nothing
+  , GoalCommand "Context" "Cmd_context Simplified" Nothing
+  , GoalCommand "Goal type and context" "Cmd_goal_type_context Simplified" Nothing
+  , GoalCommand "Goal type, context and inferred type" "Cmd_goal_type_context_infer Simplified" (Just "expression to type")
+  , GoalCommand "Goal type, context and checked type" "Cmd_goal_type_context_check Simplified" (Just "expression to type")
+  , GoalCommand "Infer type" "Cmd_infer Simplified" (Just "expression to type")
+  , GoalCommand "Helper function type" "Cmd_helper_function AsIs" (Just "expression")
+  , GoalCommand "Evaluate to normal form" "Cmd_compute DefaultCompute" (Just "expression to normalise")
+  , GoalCommand "Evaluate to head normal form" "Cmd_compute HeadCompute" (Just "expression to normalise")
+  , GoalCommand "Evaluate, ignoring abstract" "Cmd_compute IgnoreAbstract" (Just "expression to normalise")
+  , GoalCommand "Evaluate and show (with its Show instance)" "Cmd_compute UseShowInstance" (Just "expression to normalise")
+  , GoalCommand "Why in scope" "Cmd_why_in_scope" (Just "name")
+  , GoalCommand "Module contents" "Cmd_show_module_contents Simplified" (Just "module name (empty for current module)")
   ]
 
 -- | The line that runs a goal command on a goal with this text in it.
