@@ -1,0 +1,164 @@
+================================================================================
+Nested let: in closes only its own let
+================================================================================
+
+x =
+  let
+    a = let open M in b
+    c = d
+  in a
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (let
+      (function_clause
+        lhs: (lhs
+          (qname))
+        rhs: (let
+          (open
+            module: (qname))
+          (qname)))
+      (function_clause
+        lhs: (lhs
+          (qname))
+        rhs: (qname))
+      (qname))))
+
+================================================================================
+In closes blocks inside its let
+================================================================================
+
+x = let instance i = a ; instance j = b in e
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (let
+      (instance
+        (function_clause
+          lhs: (lhs
+            (qname))
+          rhs: (qname))
+        (instance
+          (function_clause
+            lhs: (lhs
+              (qname))
+            rhs: (qname))))
+      (qname))))
+
+================================================================================
+Where indented past a do bind belongs to the bind
+================================================================================
+
+f = do
+  just x ← m
+    where nothing → n
+  pure x
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (do
+      (do_statement
+        (qname)
+        (qname)
+        (qname)
+        (where
+          (function_clause
+            lhs: (lhs
+              (qname)
+              (qname)))))
+      (do_statement
+        (qname)
+        (qname)))))
+
+================================================================================
+Where at the do column ends the do block
+================================================================================
+
+f = do
+  pure x
+  where x = 1
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (do
+      (do_statement
+        (qname)
+        (qname)))
+    (where
+      (function_clause
+        lhs: (lhs
+          (qname))
+        rhs: (number)))))
+
+================================================================================
+Open module, telescope open, named instance argument
+================================================================================
+
+open module A = B c using (d)
+f : (M : R) (open R M) → {{x = y}} → T
+--------------------------------------------------------------------------------
+
+(source_file
+  (open
+    name: (qname)
+    (qname)
+    (qname)
+    (import_list
+      (qname)))
+  (signature
+    name: (qname)
+    type: (parens
+      (typed_binding
+        name: (qname)
+        type: (qname)))
+    type: (parens
+      (open
+        module: (qname)
+        (qname)))
+    type: (instance_braces
+      (assignment
+        name: (qname)
+        value: (qname)))
+    type: (qname)))
+
+================================================================================
+Named where module, idiom brackets, multi-line string
+================================================================================
+
+f = (| g x |)
+  module F where
+    h = 1
+s = "one
+\\  \\two"
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (idiom_brackets
+      (qname)
+      (qname))
+    (where_module
+      name: (qname)
+      (function_clause
+        lhs: (lhs
+          (qname))
+        rhs: (number))))
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (string)))
+

@@ -1,0 +1,180 @@
+================================================================================
+Data type with constructors
+================================================================================
+
+data ℕ : Set where
+  zero : ℕ
+  suc  : ℕ → ℕ
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (data_declaration
+    name: (qname)
+    type: (qname)
+    (constructors
+      (constructor
+        name: (qname)
+        type: (qname))
+      (constructor
+        name: (qname)
+        type: (qname)
+        type: (qname)))))
+
+================================================================================
+Record with parameters, constructor and fields
+================================================================================
+
+record Σ (A : Set) (B : A → Set) : Set where
+  constructor _,_
+  field
+    fst : A
+    snd : B fst
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (record_declaration
+    name: (qname)
+    (parens
+      (typed_binding
+        name: (qname)
+        type: (qname)))
+    (parens
+      (typed_binding
+        name: (qname)
+        type: (qname)
+        type: (qname)))
+    type: (qname)
+    (record_constructor
+      name: (qname))
+    (fields
+      (field_signature
+        name: (qname)
+        type: (qname))
+      (field_signature
+        name: (qname)
+        type: (qname)
+        type: (qname)))))
+
+================================================================================
+Imports with directives
+================================================================================
+
+open import Data.Nat using (ℕ; zero) renaming (_+_ to _plus_) public
+import Data.String as S
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (import
+    module: (qname)
+    (import_list
+      (qname)
+      (qname))
+    (renaming_list
+      (renaming
+        (qname)
+        (qname))))
+  (import
+    module: (qname)
+    alias: (qname)))
+
+================================================================================
+With clauses, holes, pragmas, literals
+================================================================================
+
+{-# TERMINATING #-}
+f : ℕ → ℕ
+f n with n
+... | zero = {! !}
+... | suc m = ?
+s = "a \"b\"" ; c = 'x' ; h = 0x2A
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pragma)
+  (signature
+    name: (qname)
+    type: (qname)
+    type: (qname))
+  (function_clause
+    lhs: (lhs
+      (qname)
+      (qname)
+      (qname)))
+  (function_clause
+    lhs: (lhs
+      (ellipsis)
+      (qname))
+    rhs: (hole))
+  (function_clause
+    lhs: (lhs
+      (ellipsis)
+      (qname)
+      (qname))
+    rhs: (hole))
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (string))
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (char))
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (number)))
+
+================================================================================
+Implicit and instance arguments, record expressions
+================================================================================
+
+g : {n : ℕ} → ⦃ _ : ℕ ⦄ → ℕ
+g {n} = record { fst = n ; snd = n }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (signature
+    name: (qname)
+    type: (braces
+      (typed_binding
+        name: (qname)
+        type: (qname)))
+    type: (instance_braces
+      (typed_binding
+        name: (underscore)
+        type: (qname)))
+    type: (qname))
+  (function_clause
+    lhs: (lhs
+      (qname)
+      (braces
+        (qname)))
+    rhs: (record_expression
+      (braces
+        (assignment
+          name: (qname)
+          value: (qname))
+        (assignment
+          name: (qname)
+          value: (qname))))))
+
+================================================================================
+Nested block comment
+================================================================================
+
+{- outer {- inner -} still outer -}
+x = 1
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (function_clause
+    lhs: (lhs
+      (qname))
+    rhs: (number)))

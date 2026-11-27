@@ -4,6 +4,8 @@ Agda support for neovim, modelled on lean.nvim:
 
 - `server/`: **agdalicious-lsp**, a Haskell language server. It does the actual work: loading files in Agda, goals, diagnostics.
 - `nvim/`: a thin Lua plugin. It starts the server, shows the infoview (`:AgdaInfo`), expands `\`-abbreviations as you type (`\lambda` → `λ`, `\to` → `→`, `\bN` → `ℕ`, ...) and makes `<C-a>`/`<C-x>` count in sub- and superscripts.
+- `tree-sitter-agda/`: a tree-sitter grammar for highlighting before (or without) Agda. It parses declarations and layout exactly and expressions as flat sequences, since mixfix operators can't be parsed without scope information. All 1266 files of agda-stdlib 2.4 parse without errors. Build it with `nix build .#agdalicious-treesitter` (a runtimepath directory with `parser/agda.so` and `queries/agda/`). The plugin starts it on `.agda` buffers when it is on the runtimepath. Develop with `cd tree-sitter-agda && tree-sitter generate && tree-sitter test`.
+- `docs/agda-interaction.md`: what `agda --interaction-json` and the Emacs mode can do: every command, response and key binding.
 
 Every open and edit type-checks the buffer (unsaved contents included) in a persistent `agda --interaction-json` process, along with the other open files that may import it, and shows errors and warnings as diagnostics. Go to definition (`vim.lsp.buf.definition()`, `gd` with most configs) uses the definition sites Agda reports while checking, hovering (`K`) explains what is under the cursor (see [Hover](#hover)), and completion offers keywords, pragmas, options, modules and names (see [Completion](#completion)). The infoview request (`agda/infoview`) still returns placeholder text.
 

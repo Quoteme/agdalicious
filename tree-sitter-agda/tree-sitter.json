@@ -1,0 +1,19 @@
+{
+  "grammars": [
+    {
+      "name": "agda",
+      "camelcase": "Agda",
+      "scope": "source.agda",
+      "path": ".",
+      "file-types": ["agda"],
+      "highlights": "queries/highlights.scm",
+      "injection-regex": "^agda$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Agda grammar for tree-sitter, for syntax highlighting",
+    "links": { "repository": "" }
+  }
+}
