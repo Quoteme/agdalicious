@@ -23,6 +23,7 @@ library
     Agdalicious.CodeAction.Fix
     Agdalicious.CodeAction.ImportModule
     Agdalicious.CodeAction.ImportSuggestion
+    Agdalicious.CodeAction.QuestionToMeta
     Agdalicious.Completion
     Agdalicious.Document
     Agdalicious.Foreign

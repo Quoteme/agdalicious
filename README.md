@@ -93,6 +93,8 @@ Hovering shows, as far as they exist: the type, a short explanation, the definit
 
 For a name that is not in scope, the code actions (`vim.lsp.buf.code_action()`) offer what Agda suggests in its error (`did you mean 'Agda.Builtin.Nat._+_'?`): importing the name from a module the file imports already (added to the `using` list of its `open`, or as `open M using (x)` after a plain `import M`), or writing a suggestion instead (`suc` for `sucx`). Agda only suggests names of modules that are imported. For a name it has nothing to import for, the server looks for the modules that define it among those the file can import (the project's, its libraries' and Agda's built-in ones) in their sources, following re-exports (`Data.Nat` re-exports `ℕ` of `Data.Nat.Base`), has Agda confirm that they export it, and offers `open import M using (x)` for each, shortest module name first. The first time, with the standard library, that takes a few seconds. When there is only one fix, it is marked preferred, so `vim.lsp.buf.code_action({ apply = true })` applies it at once.
 
+Anywhere in a file with `?`-holes, the code actions also offer to write them as `{! !}`, which has room to type in (as the Emacs mode does, and cornelis' `:CornelisQuestionToMeta`): the hole under the cursor, or all of them. Agda has no command for that, but it says where the holes are (its interaction points, from the last load), so a `?` in a comment, a string or a name such as `isZero?` is left alone.
+
 ## Foreign code
 
 The code in `FOREIGN` and `COMPILE` pragmas belongs to its backend's language:

@@ -202,7 +202,7 @@ handlers =
           (InL <$> completion (p ^. L.textDocument . L.uri) (p ^. L.position))
     , requestHandler SMethod_TextDocumentCodeAction $ \req respond -> do
         let p = req ^. L.params
-        respond . Right . InL =<< codeActions (p ^. L.textDocument . L.uri) (p ^. L.context . L.diagnostics)
+        respond . Right . InL =<< codeActions (p ^. L.textDocument . L.uri) (p ^. L.range) (p ^. L.context . L.diagnostics)
     , requestHandler SMethod_CompletionItemResolve $ \req respond ->
         respond . Right =<< resolveItem (req ^. L.params)
     , requestHandler SMethod_TextDocumentSemanticTokensFull $ \_ respond ->
@@ -434,24 +434,34 @@ inferType uri (n : ns) = do
 -- not in scope, importing (or writing) what Agda suggests, or, if it has
 -- nothing to import, importing a module that defines the name. The only
 -- fix for a diagnostic is marked preferred, so that the editor can apply it
--- without listing it.
-codeActions :: Uri -> [Diagnostic] -> ServerM [Command |? CodeAction]
-codeActions uri ds = do
-  doc <- maybe "" (Rope.toText . (^. file_text)) <$> getVirtualFile (toNormalizedUri uri)
-  fmap concat . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
+-- without listing it. And, anywhere, writing @?@-holes as @{! !}@.
+codeActions :: Uri -> Range -> [Diagnostic] -> ServerM [Command |? CodeAction]
+codeActions uri cursor ds = do
+  rope <- maybe mempty (^. file_text) <$> getVirtualFile (toNormalizedUri uri)
+  loaded <- Map.lookup uri <$> (liftIO . readMVar =<< asks documents)
+  let doc = Rope.toText rope
+      -- the holes of the last load that are still a ?
+      questions =
+        [ rangeOf (goalFrom g) (goalTo g) rope
+        | g <- maybe [] Doc.goals loaded
+        , slice (goalFrom g) (goalTo g) rope == "?"
+        ]
+      holeActions =
+        [InR (action CodeActionKind_RefactorRewrite Nothing False f) | f <- CodeAction.questionToMeta questions cursor]
+  fmap ((<> holeActions) . concat) . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
     let suggested = CodeAction.notInScope doc (d ^. L.message) (d ^. L.range)
         imports = filter (("Import " `T.isPrefixOf`) . CodeAction.title) suggested
     found <- case CodeAction.missingName (d ^. L.message) of
       Just n | null imports -> importsOf uri doc n
       _ -> pure []
     let fs = found <> suggested
-    pure [InR (codeAction d (length fs == 1) f) | f <- fs]
+    pure [InR (action CodeActionKind_QuickFix (Just [d]) (length fs == 1) f) | f <- fs]
   where
-    codeAction d preferred f =
+    action kind about preferred f =
       CodeAction
         (CodeAction.title f)
-        (Just CodeActionKind_QuickFix)
-        (Just [d])
+        (Just kind)
+        about
         (Just preferred)
         Nothing -- disabled
         (Just (WorkspaceEdit (Just (Map.singleton uri [TextEdit r t | (r, t) <- CodeAction.edits f])) Nothing Nothing))
