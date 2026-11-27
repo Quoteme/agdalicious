@@ -80,8 +80,9 @@ What is offered depends on where the cursor is:
 | `{-# OPTIONS --gu` | the options a pragma can set (`--guarded`, `--guardedness`, ...) |
 | `{-# BUILTIN ` | built-ins (`NATURAL`, `EQUALITY`, ...) |
 | `open import Agda.Bui` | the modules the file can import: its project's, its libraries' (from its `.agda-lib` and Agda's libraries file) and Agda's built-in ones |
-| `open import Agda.Builtin.IO using (` (also `hiding`, `renaming`) | what the module exports, with types |
-| elsewhere | keywords, the names the file's `open import`s bring into scope (respecting `using`, `hiding` and `renaming`) and the names it defines |
+| `open import Agda.Builtin.IO using (` (also `hiding`, `renaming`, `open N using (` for `import M as N`, and lists over several lines) | what the module exports, with types |
+| `N.su`, `Data.Nat.su` | the names an `import` makes available qualified (by the module, or the name after `as`) |
+| elsewhere | keywords, the names the file's `open import`s and `open`s of imported modules bring into scope (respecting `using`, `hiding` and `renaming`) and the names it defines |
 
 Keywords, pragmas, options and built-ins come with the manual's explanation; a module shows the comment at the top of its file once selected. What a module exports comes from Agda, which checks a scratch module importing it; the first time that can take a few seconds (Agda loads the module's dependencies), after that it is cached.
 

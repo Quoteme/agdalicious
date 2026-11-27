@@ -360,7 +360,11 @@ inferType uri (n : ns) = do
 completion :: Uri -> Position -> ServerM [CompletionItem]
 completion uri pos@(Position l c) = fmap (maybe [] id) . runMaybeT $ do
   text <- MaybeT (fmap (^. file_text) <$> getVirtualFile (toNormalizedUri uri))
-  before <- hoistMaybe (Rope.toText . fst <$> Rope.utf16SplitAt (fromIntegral c) (Rope.getLine (fromIntegral l) text))
+  line <- hoistMaybe (Rope.toText . fst <$> Rope.utf16SplitAt (fromIntegral c) (Rope.getLine (fromIntegral l) text))
+  -- the statement so far, which may have begun on a line above
+  let lineNo = fromIntegral l :: Int -- (l is unsigned)
+      above = [Rope.toText (Rope.getLine (fromIntegral k) text) | k <- [max 0 (lineNo - 30) .. lineNo - 1]]
+      before = Completion.statementBefore (map (T.dropWhileEnd (== '\n')) above <> [line])
   let edit w i = i & L.textEdit ?~ InL (TextEdit (Range (Position l (c - utf16Length w)) pos) (i ^. L.label))
       documented kind w = [edit w (manualItem k e kind) | (k, e) <- Manual.termsOf kind, kind /= "keyword" || T.any isAsciiLower k]
       docText = Rope.toText text
@@ -375,11 +379,13 @@ completion uri pos@(Position l c) = fmap (maybe [] id) . runMaybeT $ do
         [ edit w (item m CompletionItemKind_Module & L.data_ ?~ Aeson.object ["file" Aeson..= f])
         | (m, f) <- ms
         ]
-    ImportedName m w -> do
+    ImportedName q w -> do
+      let m = maybe q id (Completion.moduleNamed (Completion.imports docText) q)
       names <- exports uri docText m
       pure [edit w (nameItem n t) | (n, t) <- names]
     Code w -> do
-      names <- inScope uri text
+      -- qualified names only once a qualifier is being written
+      names <- inScope uri text ("." `T.isInfixOf` w)
       pure (documented "keyword" w <> [edit w (nameItem n t) | (n, t) <- names])
     NoCompletion -> pure []
   where
@@ -457,11 +463,12 @@ exports uri docText m = do
       unless (null names) $ modifyMVar_ exported (pure . Map.insert m names)
       pure names
 
--- | The names a document's opened imports bring into scope, and those it
--- defines. Only what is known already is offered, so that typing never waits
--- for Agda; the imported modules not asked about yet are, in the background.
-inScope :: Uri -> Rope -> ServerM [(T.Text, T.Text)]
-inScope uri text = do
+-- | The names a document's imports and @open@s bring into scope (qualified
+-- ones too, if asked for), and those it defines. Only what is known already
+-- is offered, so that typing never waits for Agda; the imported modules not
+-- asked about yet are, in the background.
+inScope :: Uri -> Rope -> Bool -> ServerM [(T.Text, T.Text)]
+inScope uri text qualified = do
   State {exported, documents} <- asks id
   known <- liftIO (readMVar exported)
   let docText = Rope.toText text
@@ -472,10 +479,11 @@ inScope uri text = do
   doc <- Map.lookup uri <$> liftIO (readMVar documents)
   let typeIn names n = maybe "" id (lookup n names)
       imported =
-        [ (n, typeIn names n)
+        [ (q <> n, typeIn names n)
         | i <- is
         , Just names <- [Map.lookup (Completion.module_ i) known]
         , n <- Completion.visible i (map fst names)
+        , q <- ["" | Completion.opened i] <> [Completion.qualifier i <> "." | qualified]
         ]
       file = uriToFilePath uri
       -- the names at their own definition sites here, other than variables

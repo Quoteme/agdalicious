@@ -1,6 +1,14 @@
--- | What is being completed, from the line before the cursor, and what a
+-- | What is being completed, from the text before the cursor, and what a
 -- document's imports bring into scope.
-module Agdalicious.Completion (Context (..), context, Import (..), imports, visible) where
+module Agdalicious.Completion
+  ( Context (..)
+  , context
+  , statementBefore
+  , Import (..)
+  , imports
+  , moduleNamed
+  , visible
+  ) where
 
 import Data.Char (isSpace)
 import Data.Maybe (mapMaybe)
@@ -24,7 +32,8 @@ data Context
   | NoCompletion
   -- ^ something nothing is offered for, like a pragma's contents
 
--- | The context, and with it the text so far, which completing replaces.
+-- | The context, and with it the text so far, which completing replaces, from
+-- the statement before the cursor (see 'statementBefore').
 context :: Text -> Context
 context before
   | Just inside <- pragma = case (T.words inside, trailingSpace) of
@@ -62,35 +71,95 @@ context before
       [] -> Nothing
       xs -> let l = last xs in if ")" `T.isInfixOf` l then Nothing else Just l
 
--- | An @open import@ (or @open@) line: the module, and the names it brings
--- into scope unqualified.
+-- | The text of the statement the cursor is in, up to the cursor: the line
+-- before it (the last of the given lines), joined to the lines above it if
+-- it continues an @open@ or @import@ statement, which goes on as long as
+-- its lines are indented further than its first one.
+statementBefore :: [Text] -> Text
+statementBefore [] = ""
+statementBefore ls = case break isHead (reverse (filter (not . blank) above)) of
+  (between, h : _) | all ((> indentation h) . indentation) (cursor : between) ->
+    -- the line the cursor is on keeps its end (a space there matters)
+    T.unwords (map T.strip (h : reverse between) <> [T.stripStart cursor])
+  _ -> cursor
+  where
+    (above, cursor) = (init ls, last ls)
+
+-- | An import (@open import@, @import@) or an @open@ of an imported module:
+-- the module, and what it brings into scope.
 data Import = Import
   { module_ :: Text
+  , qualifier :: Text
+  -- ^ what its names can be qualified with: the module, or the name after @as@
+  , opened :: Bool
+  -- ^ whether it brings its names into scope unqualified too
   , using :: Maybe [Text]
   , hiding :: [Text]
   , renaming :: [(Text, Text)]
   }
 
--- | The imports that open their module, one per line.
+-- | A document's imports, and its @open@s of the modules it imports
+-- (directly or by the name after @as@). An @open@ of any other module, such
+-- as one defined in the document, is left out.
 imports :: Text -> [Import]
-imports = mapMaybe line . T.lines
+imports t = direct <> mapMaybe opening stmts
   where
-    line l = case T.words l of
-      "open" : "import" : m : _ -> Just (directives m (T.drop (T.length m) (snd (T.breakOn m l))))
+    stmts = statements (T.lines t)
+    direct = mapMaybe statement stmts
+    statement l = case T.words l of
+      "open" : "import" : m : rest -> Just (directives m True rest l)
+      "import" : m : rest -> Just (directives m False rest l)
       _ -> Nothing
-    directives m rest =
+    opening l = case T.words l of
+      "open" : q : rest | q /= "import", Just m <- moduleNamed direct q -> Just (directives m True rest l) {qualifier = q}
+      _ -> Nothing
+    directives m open rest l =
       Import
         { module_ = m
-        , using = list "using" rest
-        , hiding = maybe [] id (list "hiding" rest)
-        , renaming = [(a, b) | r <- maybe [] id (list "renaming" rest), [a, "to", b] <- [T.words r]]
+        , qualifier = case dropWhile (/= "as") rest of
+            _ : n : _ -> n
+            _ -> m
+        , opened = open
+        , using = list "using" (after m l)
+        , hiding = maybe [] id (list "hiding" (after m l))
+        , renaming = [(a, b) | r <- maybe [] id (list "renaming" (after m l)), [a, "to", b] <- [T.words r]]
         }
+    after m l = T.drop (T.length m) (snd (T.breakOn m l))
     list kw rest = case T.breakOn (kw <> " (") rest of
       (_, "") -> case T.breakOn (kw <> "(") rest of
         (_, "") -> Nothing
         (_, r) -> Just (items (T.drop (T.length kw + 1) r))
       (_, r) -> Just (items (T.drop (T.length kw + 2) r))
     items = filter (not . T.null) . map T.strip . T.splitOn ";" . fst . T.breakOn ")"
+
+-- | The module a name in an @open@ (or a @using@ list after it) stands for:
+-- an imported module, by its name or the name after @as@.
+moduleNamed :: [Import] -> Text -> Maybe Text
+moduleNamed is q = case [module_ i | i <- is, qualifier i == q || module_ i == q] of
+  m : _ -> Just m
+  [] -> Nothing
+
+-- | A document's statements: each line that starts an @open@ or @import@,
+-- with the lines after it that are indented further, joined; other lines
+-- as they are.
+statements :: [Text] -> [Text]
+statements [] = []
+statements (l : ls)
+  | isHead l, (more, rest) <- span (\x -> blank x || indentation x > indentation l) ls =
+      T.unwords (map T.strip (l : filter (not . blank) more)) : statements rest
+  | otherwise = l : statements ls
+
+isHead :: Text -> Bool
+isHead l = case T.words l of
+  "open" : _ -> True
+  "import" : _ -> True
+  _ -> False
+
+blank :: Text -> Bool
+blank = T.all isSpace
+
+indentation :: Text -> Int
+indentation = T.length . T.takeWhile (== ' ')
 
 -- | The names an import brings into scope, of those its module exports.
 visible :: Import -> [Text] -> [Text]
