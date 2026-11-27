@@ -178,3 +178,26 @@ x = 1
     lhs: (lhs
       (qname))
     rhs: (number)))
+
+================================================================================
+FOREIGN and COMPILE pragmas
+================================================================================
+
+{-# FOREIGN GHC import Data.Maybe #-}
+{-# FOREIGN C
+  #include <stdio.h>
+#-}
+{-# COMPILE GHC f = id #-}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pragma
+    backend: (backend)
+    code: (code))
+  (pragma
+    backend: (backend)
+    code: (code))
+  (pragma
+    backend: (backend)
+    code: (code)))

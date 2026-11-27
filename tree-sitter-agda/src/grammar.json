@@ -2606,24 +2606,115 @@
       }
     },
     "pragma": {
-      "type": "TOKEN",
-      "content": {
-        "type": "SEQ",
-        "members": [
-          {
-            "type": "STRING",
-            "value": "{-#"
-          },
-          {
-            "type": "PATTERN",
-            "value": "([^#]|#+[^#-]|#+-[^#}])*"
-          },
-          {
-            "type": "PATTERN",
-            "value": "#+-\\}"
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "TOKEN",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "{-#"
+              },
+              {
+                "type": "PATTERN",
+                "value": "([^#]|#+[^#-]|#+-[^#}])*"
+              },
+              {
+                "type": "PATTERN",
+                "value": "#+-\\}"
+              }
+            ]
           }
-        ]
-      }
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "TOKEN",
+                "content": {
+                  "type": "PREC",
+                  "value": 1,
+                  "content": {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": "{-#"
+                      },
+                      {
+                        "type": "PATTERN",
+                        "value": "\\s*"
+                      },
+                      {
+                        "type": "CHOICE",
+                        "members": [
+                          {
+                            "type": "STRING",
+                            "value": "FOREIGN"
+                          },
+                          {
+                            "type": "STRING",
+                            "value": "COMPILE"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              "named": false,
+              "value": "{-#"
+            },
+            {
+              "type": "FIELD",
+              "name": "backend",
+              "content": {
+                "type": "ALIAS",
+                "content": {
+                  "type": "PATTERN",
+                  "value": "[^\\s#]+"
+                },
+                "named": true,
+                "value": "backend"
+              }
+            },
+            {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "FIELD",
+                  "name": "code",
+                  "content": {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "PATTERN",
+                      "value": "([^#]|#+[^#-]|#+-[^#}])+"
+                    },
+                    "named": true,
+                    "value": "code"
+                  }
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "PATTERN",
+                "value": "#+-\\}"
+              },
+              "named": false,
+              "value": "#-}"
+            }
+          ]
+        }
+      ]
     },
     "qname": {
       "type": "SYMBOL",
