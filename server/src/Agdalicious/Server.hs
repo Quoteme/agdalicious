@@ -14,20 +14,23 @@ module Agdalicious.Server (run) where
 
 import Agdalicious.Agda (Agda)
 import Agdalicious.Agda qualified as Agda
+import Agdalicious.Completion (Context (..))
+import Agdalicious.Completion qualified as Completion
 import Agdalicious.Document (Document, Goal (..), Token (..), goalAt, offsetOf, positionOf, rangeOf, slice, tokenAt)
 import Agdalicious.Document qualified as Doc
 import Agdalicious.Hover (Info (..), render)
 import Agdalicious.Manual qualified as Manual
 import Agdalicious.Source qualified as Source
 import Agdalicious.Infoview (InfoviewParams (..), InfoviewResult (..))
+import Agdalicious.Libraries qualified as Libraries
 import Agdalicious.Shadow (Shadow)
 import Agdalicious.Shadow qualified as Shadow
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.MVar
-import Control.Lens ((^.), (^..), (^?))
+import Control.Lens ((&), (.~), (?~), (^.), (^..), (^?))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.IO.Unlift (withRunInIO)
-import Control.Monad (guard, unless)
+import Control.Monad (guard, unless, void)
 import Control.Monad.Reader (ReaderT, asks, runReaderT)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
@@ -35,7 +38,8 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Lens (key, values, _String)
 import Data.Bifunctor (first)
 import Data.Foldable (for_)
-import Data.List (nub, sortOn)
+import System.FilePath ((</>))
+import Data.List (isPrefixOf, nub, sortOn)
 import Data.Maybe (catMaybes, listToMaybe, mapMaybe, maybeToList)
 import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
@@ -54,7 +58,16 @@ type InfoviewMethod = 'Method_CustomMethod "agda/infoview" :: Method 'ClientToSe
 
 run :: IO Int
 run = Shadow.with $ \shadow -> do
-  st <- State <$> Agda.start <*> pure shadow <*> newMVar mempty <*> newMVar mempty
+  st <-
+    State
+      <$> Agda.start
+      <*> pure shadow
+      <*> newMVar mempty
+      <*> newMVar mempty
+      <*> Libraries.config
+      <*> newMVar mempty
+      <*> newMVar mempty
+      <*> newMVar ()
   runServer
     ServerDefinition
       { parseConfig = \cfg _ -> Right cfg
@@ -64,7 +77,11 @@ run = Shadow.with $ \shadow -> do
       , doInitialize = \env _req -> pure (Right env)
       , staticHandlers = const handlers
       , interpretHandler = \env -> Iso (runLspT env . flip runReaderT st) liftIO
-      , options = defaultOptions {optTextDocumentSync = Just syncOptions}
+      , options =
+          defaultOptions
+            { optTextDocumentSync = Just syncOptions
+            , optCompletionTriggerCharacters = Just ".-"
+            }
       }
 
 syncOptions :: TextDocumentSyncOptions
@@ -85,6 +102,13 @@ data State = State
   -- ^ the load currently running for each document
   , documents :: MVar (Map.Map Uri Document)
   -- ^ what each document's last load said about it
+  , libraryConfig :: Libraries.Config
+  , moduleLists :: MVar (Map.Map FilePath [(T.Text, FilePath)])
+  -- ^ the modules in each library directory
+  , exported :: MVar (Map.Map T.Text [(T.Text, T.Text)])
+  -- ^ the names (with types) each module exports, as far as asked for
+  , scratch :: MVar ()
+  -- ^ held while a scratch module (see 'exports') is in use
   }
 
 -- | The monad the handlers run in: the LSP monad, with the shared state.
@@ -117,6 +141,12 @@ handlers =
         let p = req ^. L.params
         h <- hover (p ^. L.textDocument . L.uri) (p ^. L.position)
         respond (Right (maybe (InR Null) InL h))
+    , requestHandler SMethod_TextDocumentCompletion $ \req respond -> do
+        let p = req ^. L.params
+        items <- completion (p ^. L.textDocument . L.uri) (p ^. L.position)
+        respond (Right (InL items))
+    , requestHandler SMethod_CompletionItemResolve $ \req respond ->
+        respond . Right =<< resolveItem (req ^. L.params)
     , requestHandler SMethod_TextDocumentSemanticTokensFull $ \_ respond ->
         -- TODO: Agda's highlighting information
         respond (Right (InR Null))
@@ -136,10 +166,13 @@ handlers =
 -- for documents that don't depend on it.
 edited :: Uri -> ServerM ()
 edited uri = do
-  s <- asks shadow
+  State {shadow, exported} <- asks id
   file <- getVirtualFile (toNormalizedUri uri)
-  for_ ((,) <$> uriToFilePath uri <*> file) $ \(f, vf) ->
-    liftIO (Shadow.write s f (virtualFileText vf))
+  for_ ((,) <$> uriToFilePath uri <*> file) $ \(f, vf) -> liftIO $ do
+    Shadow.write shadow f (virtualFileText vf)
+    -- what its module exports may have changed
+    for_ (Source.moduleName (Source.moduleOf (T.lines (virtualFileText vf)))) $ \m ->
+      modifyMVar_ exported (pure . Map.delete m)
   reloadOpen uri
 
 -- | Reload every open document, starting with @uri@ if it is one of them.
@@ -318,6 +351,140 @@ inferType _ [] = pure Nothing
 inferType uri (n : ns) = do
   rs <- query uri ("Cmd_infer_toplevel AsIs " <> show (T.unpack n))
   maybe (inferType uri ns) (pure . Just) (listToMaybe (rs ^.. traverse . key "info" . key "expr" . _String))
+
+-- * Completion
+
+-- | What can be written at a position: keywords, pragmas, options and
+-- built-ins (documented from the manual), modules, and names.
+completion :: Uri -> Position -> ServerM [CompletionItem]
+completion uri pos@(Position l c) = fmap (maybe [] id) . runMaybeT $ do
+  text <- MaybeT (fmap (^. file_text) <$> getVirtualFile (toNormalizedUri uri))
+  before <- hoistMaybe (Rope.toText . fst <$> Rope.utf16SplitAt (fromIntegral c) (Rope.getLine (fromIntegral l) text))
+  let edit w i = i & L.textEdit ?~ InL (TextEdit (Range (Position l (c - utf16Length w)) pos) (i ^. L.label))
+      documented kind w = [edit w (manualItem k e kind) | (k, e) <- Manual.termsOf kind]
+      docText = Rope.toText text
+  lift $ case Completion.context before of
+    Pragma w -> pure (documented "pragma" w)
+    PragmaOption w -> pure (documented "pragma-option" w)
+    Builtin w ->
+      pure [edit w (manualItem (T.drop 8 k) e "builtin") | (k, e) <- Manual.termsOf "builtin"]
+    ModulePath w -> do
+      ms <- modules uri docText
+      pure
+        [ edit w (item m CompletionItemKind_Module & L.data_ ?~ Aeson.object ["file" Aeson..= f])
+        | (m, f) <- ms
+        ]
+    ImportedName m w -> do
+      names <- exports uri docText m
+      pure [edit w (nameItem n t) | (n, t) <- names]
+    Code w -> do
+      names <- inScope uri text
+      pure (documented "keyword" w <> [edit w (nameItem n t) | (n, t) <- names])
+    NoCompletion -> pure []
+  where
+    utf16Length = fromIntegral . T.foldl' (\n ch -> n + if fromEnum ch > 0xFFFF then 2 else 1) (0 :: Int)
+
+item :: T.Text -> CompletionItemKind -> CompletionItem
+item label kind =
+  CompletionItem label Nothing (Just kind) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
+-- | A keyword, pragma, option or built-in, with what the manual says about it.
+manualItem :: T.Text -> Manual.Entry -> T.Text -> CompletionItem
+manualItem label e kind =
+  item label (if kind == "keyword" then CompletionItemKind_Keyword else CompletionItemKind_Property)
+    & L.detail ?~ Manual.title e
+    & L.documentation ?~ InR (MarkupContent MarkupKind_Markdown (render (manualInfo label (Just e)) {details = []}))
+
+nameItem :: T.Text -> T.Text -> CompletionItem
+nameItem n t = item n CompletionItemKind_Function & L.detail ?~ t
+
+-- | A module's documentation (the comment at the top of its file), when a
+-- completion of it is selected.
+resolveItem :: CompletionItem -> ServerM CompletionItem
+resolveItem i = case i ^? L.data_ . traverse . key "file" . _String of
+  Nothing -> pure i
+  Just f -> do
+    src <- textOf (T.unpack f)
+    let header = Source.header (Source.moduleOf (Rope.lines src))
+    pure (if null header then i else i & L.documentation ?~ InR (MarkupContent MarkupKind_Markdown (T.intercalate "\n\n" header)))
+
+-- | The modules a document can import.
+modules :: Uri -> T.Text -> ServerM [(T.Text, FilePath)]
+modules uri docText = case uriToFilePath uri of
+  Nothing -> pure []
+  Just file -> do
+    State {libraryConfig, moduleLists} <- asks id
+    dirs <- liftIO (Libraries.includes libraryConfig file (Source.moduleName (Source.moduleOf (T.lines docText))))
+    -- libraries don't change while we run, but the document's own project may
+    let project = Libraries.rootOf file (Source.moduleName (Source.moduleOf (T.lines docText)))
+    liftIO . fmap concat . for dirs $ \d ->
+      if project `isPrefixOf` d || d `isPrefixOf` project
+        then Libraries.modulesIn d
+        else modifyMVar moduleLists $ \cache -> case Map.lookup d cache of
+          Just ms -> pure (cache, ms)
+          Nothing -> (\ms -> (Map.insert d ms cache, ms)) <$> Libraries.modulesIn d
+  where
+    for = flip traverse
+
+-- | The names a module exports, with their types. Agda says what they are:
+-- it checks a scratch module that imports it (in the mirror, at the
+-- document's root, so it sees the same libraries), and lists its contents.
+exports :: Uri -> T.Text -> T.Text -> ServerM [(T.Text, T.Text)]
+exports uri docText m = do
+  State {agda, shadow, exported, scratch} <- asks id
+  cached <- Map.lookup m <$> liftIO (readMVar exported)
+  case (cached, uriToFilePath uri) of
+    (Just names, _) -> pure names
+    (Nothing, Nothing) -> pure []
+    (Nothing, Just file) -> liftIO . withMVar scratch $ \() -> do
+      let root = Libraries.rootOf file (Source.moduleName (Source.moduleOf (T.lines docText)))
+          scratchFile = root </> "AgdaliciousCompletion.agda"
+          copy = Shadow.path shadow scratchFile
+      Shadow.write shadow scratchFile ("module AgdaliciousCompletion where\nimport " <> m <> "\n")
+      _ <- Agda.command agda copy ("Cmd_load " <> show copy <> " []")
+      rs <- Agda.command agda copy ("Cmd_show_module_contents_toplevel Simplified " <> show (T.unpack m))
+      Shadow.remove shadow scratchFile
+      let names =
+            nub $
+              [ (n, t)
+              | e <- rs ^.. traverse . key "info" . key "contents" . values
+              , Just n <- [e ^? key "name" . _String]
+              , Just t <- [e ^? key "term" . _String]
+              ]
+                <> [(n, "") | n <- rs ^.. traverse . key "info" . key "names" . values . _String]
+      unless (null names) $ modifyMVar_ exported (pure . Map.insert m names)
+      pure names
+
+-- | The names a document's opened imports bring into scope, and those it
+-- defines. Only what is known already is offered, so that typing never waits
+-- for Agda; the imported modules not asked about yet are, in the background.
+inScope :: Uri -> Rope -> ServerM [(T.Text, T.Text)]
+inScope uri text = do
+  State {exported, documents} <- asks id
+  known <- liftIO (readMVar exported)
+  let docText = Rope.toText text
+      is = Completion.imports docText
+      missing = nub [Completion.module_ i | i <- is, not (Map.member (Completion.module_ i) known)]
+  unless (null missing) $ withRunInIO $ \inIO ->
+    void (async (inIO (for_ missing (exports uri docText))))
+  doc <- Map.lookup uri <$> liftIO (readMVar documents)
+  let typeIn names n = maybe "" id (lookup n names)
+      imported =
+        [ (n, typeIn names n)
+        | i <- is
+        , Just names <- [Map.lookup (Completion.module_ i) known]
+        , n <- Completion.visible i (map fst names)
+        ]
+      file = uriToFilePath uri
+      -- the names at their own definition sites here, other than variables
+      defined =
+        [ (slice (from t) (to t) text, "")
+        | Just d <- [doc]
+        , t <- Doc.tokens d
+        , site t == ((,from t) <$> file)
+        , "bound" `notElem` atoms t
+        ]
+  pure (nub (imported <> defined))
 
 -- | Run a goal or top-level command in the scope of a document (its copy in
 -- the mirror, which Agda loads first if needed).

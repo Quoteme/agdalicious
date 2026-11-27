@@ -5,7 +5,7 @@
 -- checks its unsaved contents, against the unsaved contents of the open
 -- documents it imports. Directories become real (instead of links) only on
 -- the way to an open document, so the mirror stays small.
-module Agdalicious.Shadow (Shadow, with, path, unshadow, write, restore) where
+module Agdalicious.Shadow (Shadow, with, path, unshadow, write, restore, remove) where
 
 import Control.Exception (bracket)
 import Control.Monad (unless, when)
@@ -13,7 +13,7 @@ import Data.Text qualified as T
 import Data.Text.IO.Utf8 qualified as T
 import System.Directory
 import System.FilePath
-import System.Posix.Process (getProcessID)
+import System.Process (getCurrentPid)
 
 newtype Shadow = Shadow FilePath
 
@@ -22,7 +22,7 @@ with :: (Shadow -> IO a) -> IO a
 with = bracket create (\(Shadow dir) -> removePathForcibly dir)
   where
     create = do
-      dir <- (</>) <$> getTemporaryDirectory <*> (("agdalicious-" <>) . show <$> getProcessID)
+      dir <- (</>) <$> getTemporaryDirectory <*> (("agdalicious-" <>) . show <$> getCurrentPid)
       removePathForcibly dir >> createDirectory dir >> mirror "/" dir
       pure (Shadow dir)
 
@@ -44,6 +44,10 @@ write s f t = do
 -- | Point the mirror's copy of a file back at the original.
 restore :: Shadow -> FilePath -> IO ()
 restore s f = removePathForcibly (path s f) >> createFileLink f (path s f)
+
+-- | Remove a file that is only in the mirror.
+remove :: Shadow -> FilePath -> IO ()
+remove s f = removePathForcibly (path s f)
 
 -- | Make the mirror's copy of a directory (and its parents) real.
 expand :: Shadow -> FilePath -> IO ()

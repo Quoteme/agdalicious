@@ -10,10 +10,12 @@ per manual section and per command-line option:
     {"version": "2.8.0",
      "entries": [{"title", "url", "summary", "example", "text"}],
      "terms": {"data": 3, "BUILTIN NATURAL": 17, "--safe": 40, ...},
+     "kinds": {"data": "keyword", "BUILTIN NATURAL": "builtin", "--safe": "option", ...},
      "libraries": {...}}
 
 `terms` maps what can be hovered (keywords, symbols, pragmas, built-ins,
-primitives, options) to the entry that explains it. Nothing in it is written by
+primitives, options) to the entry that explains it, and `kinds` says which of
+these it is (for completion). Nothing in it is written by
 hand: keywords come from the manual's list of keywords, pragmas from its index
 of pragmas, built-ins and primitives from the code that declares them.
 """
@@ -27,6 +29,7 @@ from pathlib import Path
 # Where in the manual the lists of things to document are (rst labels).
 KEYWORDS_SECTION = "keywords-and-special-symbols"
 PRAGMAS_SECTION = "pragmas"
+PRAGMA_OPTIONS_SECTION = "command-line-pragmas"  # options that OPTIONS pragmas take
 
 UNDERLINE = re.compile(r"^([=\-~^\"*+#`'.:<>_])\1{2,}\s*$")
 LABEL = re.compile(r"^\.\. _([^:`]+):\s*$")
@@ -253,7 +256,7 @@ def main(root, sources_file):
     manual = Manual(root, sources["manual"].format(version=version))
     limit = sources["maxLength"]
 
-    entries, index, terms = [], {}, {}
+    entries, index, terms, kinds = [], {}, {}, {}
 
     def section_entry(p, k):
         if (p.url, k) not in index:
@@ -271,18 +274,22 @@ def main(root, sources_file):
     for m in re.finditer(r":ref:`([A-Z_]+)\s*<([^>]+)>`", "\n".join(p.lines[p.sections[k]["body"]:p.sections[k]["end"]])):
         if m.group(2) in manual.labels:
             terms.setdefault(m.group(1), label_entry(m.group(2)))
+            kinds[m.group(1)] = "pragma"
 
     # options: one entry each
+    op, ok, _ = manual.labels[PRAGMA_OPTIONS_SECTION]
+    in_pragmas = lambda p, i: p is op and op.sections[ok]["start"] <= i < op.sections[ok]["end"]
     for p in manual.pages:
         for i, l in enumerate(p.lines):
             d = DIRECTIVE.match(l)
-            if d and d.group(2) == "option":
+            if d and d.group(2) == "option" and d.group(3).startswith("-"):
                 names = [re.split(r"[=\s\[{]", o.strip())[0] for o in d.group(3).split(",")]
                 url = p.url + "#cmdoption-" + names[0].lstrip("-")
                 body = dedent(p.lines[i + 1:block_end(p.lines, i, indent(l))])
                 entries.append(manual.entry(d.group(3), url, body, limit))
                 for n in names:
                     terms.setdefault(n, len(entries) - 1)
+                    kinds[n] = "pragma-option" if in_pragmas(p, i) else "option"
 
     # built-ins and primitives, from the code that declares them
     for p in manual.pages:
@@ -292,11 +299,13 @@ def main(root, sources_file):
                 continue
             for m in re.finditer(r"\{-#\s*BUILTIN\s+([A-Z0-9_]+)", l):
                 terms.setdefault("BUILTIN " + m.group(1), section_entry(p, k))
+                kinds["BUILTIN " + m.group(1)] = "builtin"
             if re.match(r"^\s+primitive\s*$", l):
                 for x in p.lines[i + 1:block_end(p.lines, i, indent(l))]:
                     m = re.match(r"^\s+(prim\w+)\s*:", x)
                     if m:
                         terms.setdefault(m.group(1), section_entry(p, k))
+                        kinds[m.group(1)] = "primitive"
 
     # keywords and symbols, from the list of keywords
     p, k, _ = manual.labels[KEYWORDS_SECTION]
@@ -309,8 +318,10 @@ def main(root, sources_file):
             for m in re.finditer(r":ref:`(\S+)\s*<([^>]+)>`|``(\S+?)``", block):
                 if m.group(1):
                     terms.setdefault(m.group(1), label_entry(m.group(2)))
+                    kinds[m.group(1)] = "keyword"
                 else:
                     plain.append(m.group(3))
+                    kinds[m.group(3)] = "keyword"
 
     # A keyword without a link: the section of the language reference named
     # after it (a page, or a section of exactly that name, else the top-most),
@@ -356,7 +367,7 @@ def main(root, sources_file):
             continue
         terms[kw] = section_entry(p, k)
 
-    json.dump(dict(version=version, entries=entries, terms=terms, libraries=sources["libraries"]),
+    json.dump(dict(version=version, entries=entries, terms=terms, kinds=kinds, libraries=sources["libraries"]),
               sys.stdout, ensure_ascii=False, indent=None)
 
 

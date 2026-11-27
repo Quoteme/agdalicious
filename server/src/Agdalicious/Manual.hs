@@ -8,7 +8,7 @@
 -- @scripts/gen-manual.py@ generates it from the manual's sources at build
 -- time (as @data/manual.json@), and it is compiled into the server. Built
 -- without it, there is none.
-module Agdalicious.Manual (Entry (..), term, libraryLink) where
+module Agdalicious.Manual (Entry (..), term, termsOf, libraryLink) where
 
 import Data.Aeson (FromJSON)
 import Data.Aeson qualified as Aeson
@@ -33,19 +33,25 @@ data Entry = Entry
 data Manual = Manual
   { entries :: [Entry]
   , terms :: Map Text Int
+  , kinds :: Map Text Text
+  -- ^ keyword, pragma, pragma-option, option, builtin or primitive
   , libraries :: Map Text Text
   }
   deriving (Generic, FromJSON)
 
 manual :: Manual
 manual =
-  maybe (Manual [] mempty mempty) id $
+  maybe (Manual [] mempty mempty mempty) id $
     Aeson.decodeStrict =<< $(embedFileIfExists "data/manual.json")
 
 -- | What the manual says about a keyword, symbol, pragma (@OPTIONS@), option
 -- (@--safe@), built-in (@BUILTIN NATURAL@) or primitive (@primNatToChar@).
 term :: Text -> Maybe Entry
 term t = (entries manual !!) <$> Map.lookup t (terms manual)
+
+-- | The terms of a kind (see 'kinds'), with what the manual says about them.
+termsOf :: Text -> [(Text, Entry)]
+termsOf k = [(t, e) | (t, k') <- Map.toList (kinds manual), k' == k, Just e <- [term t]]
 
 -- | The link to a definition in a library's HTML documentation, if it has any.
 libraryLink :: Text -> Text -> Text -> Int -> Maybe Text

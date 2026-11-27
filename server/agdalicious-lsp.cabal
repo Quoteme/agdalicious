@@ -18,9 +18,11 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Agdalicious.Agda
+    Agdalicious.Completion
     Agdalicious.Document
     Agdalicious.Hover
     Agdalicious.Infoview
+    Agdalicious.Libraries
     Agdalicious.Manual
     Agdalicious.Server
     Agdalicious.Shadow
@@ -42,7 +44,6 @@ library
     , text
     , text-rope
     , transformers
-    , unix
     , unliftio-core
 
 executable agdalicious-lsp
