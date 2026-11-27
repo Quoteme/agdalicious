@@ -367,6 +367,7 @@ def main(root, sources_file):
             continue
         terms[kw] = section_entry(p, k)
 
+    sys.stdout.reconfigure(encoding="utf-8")
     json.dump(dict(version=version, entries=entries, terms=terms, kinds=kinds, libraries=sources["libraries"]),
               sys.stdout, ensure_ascii=False, indent=None)
 
