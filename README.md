@@ -23,6 +23,13 @@ Example of a code action to import a missing module
 <img width="697" height="216" alt="image" src="https://github.com/user-attachments/assets/b7e412ad-dd2f-490b-9096-5943abe399ad" />
 <img width="542" height="400" alt="image" src="https://github.com/user-attachments/assets/14ae122f-edb7-4b50-9d7c-669dd50f7b76" />
 
+Example of code actions following [holes and case splitting of the Agda guide](https://agda.readthedocs.io/en/latest/getting-started/a-taste-of-agda.html#holes-and-case-splitting)
+
+
+https://github.com/user-attachments/assets/e465078f-5872-45f1-a45d-3d3e27bdd1c7
+
+
+
 ## Development
 
 ```sh
