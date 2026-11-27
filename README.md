@@ -89,6 +89,10 @@ Hovering shows, as far as they exist: the type, a short explanation, the definit
 
 `scripts/gen-manual.py` generates the bundled part at build time from the manual's sources (the `agda-src` flake input, or the release tarball in CI). Which keywords, pragmas, built-ins and options there are, and where the manual explains them, comes from the manual itself; `scripts/doc-sources.json` has the URLs and the one keyword (`public`) whose section can't be found automatically.
 
+## Code actions
+
+For a name that is not in scope, the code actions (`vim.lsp.buf.code_action()`) offer what Agda suggests in its error (`did you mean 'Agda.Builtin.Nat._+_'?`): importing the name from a module the file imports already (added to the `using` list of its `open`, or as `open M using (x)` after a plain `import M`), or writing a suggestion instead (`suc` for `sucx`). When there is only one fix, it is marked preferred, so `vim.lsp.buf.code_action({ apply = true })` applies it at once. Agda only suggests names of modules that are imported: for others there is nothing to offer yet.
+
 ## Foreign code
 
 The code in `FOREIGN` and `COMPILE` pragmas belongs to its backend's language:

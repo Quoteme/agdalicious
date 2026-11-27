@@ -21,6 +21,7 @@ import Agdalicious.Agda (Agda)
 import Agdalicious.Agda qualified as Agda
 import Agdalicious.Client (Client)
 import Agdalicious.Client qualified as Client
+import Agdalicious.CodeAction qualified as CodeAction
 import Agdalicious.Completion (Context (..))
 import Agdalicious.Completion qualified as Completion
 import Agdalicious.Document (Document, Goal (..), Token (..), goalAt, offsetOf, positionOf, rangeOf, slice, tokenAt)
@@ -197,6 +198,9 @@ handlers =
         let p = req ^. L.params
         respond . Right =<< orForeign "textDocument/completion" p (InR (InR Null)) completionBack
           (InL <$> completion (p ^. L.textDocument . L.uri) (p ^. L.position))
+    , requestHandler SMethod_TextDocumentCodeAction $ \req respond -> do
+        let p = req ^. L.params
+        respond . Right . InL =<< codeActions (p ^. L.textDocument . L.uri) (p ^. L.context . L.diagnostics)
     , requestHandler SMethod_CompletionItemResolve $ \req respond ->
         respond . Right =<< resolveItem (req ^. L.params)
     , requestHandler SMethod_TextDocumentSemanticTokensFull $ \_ respond ->
@@ -421,6 +425,32 @@ inferType _ [] = pure Nothing
 inferType uri (n : ns) = do
   rs <- query uri ("Cmd_infer_toplevel AsIs " <> show (T.unpack n))
   maybe (inferType uri ns) (pure . Just) (listToMaybe (rs ^.. traverse . key "info" . key "expr" . _String))
+
+-- * Code actions
+
+-- | The fixes for Agda's diagnostics: importing (or writing) what Agda
+-- suggests for a name not in scope ("Agdalicious.CodeAction"). The only fix
+-- for a diagnostic is marked preferred, so that the editor can apply it
+-- without listing it.
+codeActions :: Uri -> [Diagnostic] -> ServerM [Command |? CodeAction]
+codeActions uri ds = do
+  doc <- maybe "" (Rope.toText . (^. file_text)) <$> getVirtualFile (toNormalizedUri uri)
+  pure
+    [ InR $
+        CodeAction
+          (CodeAction.title f)
+          (Just CodeActionKind_QuickFix)
+          (Just [d])
+          (Just (length fs == 1))
+          Nothing -- disabled
+          (Just (WorkspaceEdit (Just (Map.singleton uri [TextEdit r t | (r, t) <- CodeAction.edits f])) Nothing Nothing))
+          Nothing -- command
+          Nothing -- data
+    | d <- ds
+    , d ^. L.source == Just "agda"
+    , let fs = CodeAction.notInScope doc (d ^. L.message) (d ^. L.range)
+    , f <- fs
+    ]
 
 -- * Completion
 

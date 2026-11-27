@@ -19,6 +19,9 @@ library
   exposed-modules:
     Agdalicious.Agda
     Agdalicious.Client
+    Agdalicious.CodeAction
+    Agdalicious.CodeAction.Fix
+    Agdalicious.CodeAction.ImportSuggestion
     Agdalicious.Completion
     Agdalicious.Document
     Agdalicious.Foreign
