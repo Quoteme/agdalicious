@@ -7,6 +7,7 @@
       "path": ".",
       "file-types": ["agda"],
       "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm",
       "injection-regex": "^agda$"
     }
   ],

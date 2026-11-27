@@ -439,7 +439,17 @@ module.exports = grammar({
 
     char: _ => token(seq('\'', choice(/[^'\\\n]/, /\\[^\n]+?/), '\'')),
 
-    pragma: _ => token(seq('{-#', /([^#]|#+[^#-]|#+-[^#}])*/, /#+-\}/)),
+    // FOREIGN and COMPILE pragmas carry code for a backend, which
+    // queries/injections.scm highlights in the backend's language.
+    pragma: $ => choice(
+      token(seq('{-#', /([^#]|#+[^#-]|#+-[^#}])*/, /#+-\}/)),
+      seq(
+        alias(token(prec(1, seq('{-#', /\s*/, choice('FOREIGN', 'COMPILE')))), '{-#'),
+        field('backend', alias(/[^\s#]+/, $.backend)),
+        optional(field('code', alias(/([^#]|#+[^#-]|#+-[^#}])+/, $.code))),
+        alias(/#+-\}/, '#-}'),
+      ),
+    ),
 
     qname: $ => $._qname,
 

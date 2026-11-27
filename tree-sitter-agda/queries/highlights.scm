@@ -6,7 +6,9 @@
 ; Literals and comments ---------------------------------------------------
 
 (comment) @comment @spell
-(pragma) @keyword.directive
+(pragma !code) @keyword.directive
+(pragma ["{-#" "#-}"] @keyword.directive)
+(backend) @keyword.directive
 (string) @string
 (char) @character
 (number) @number

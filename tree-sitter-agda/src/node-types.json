@@ -2596,6 +2596,33 @@
     }
   },
   {
+    "type": "pragma",
+    "named": true,
+    "extra": true,
+    "fields": {
+      "backend": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "backend",
+            "named": true
+          }
+        ]
+      },
+      "code": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "code",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "primitive",
     "named": true,
     "fields": {},
@@ -4034,6 +4061,10 @@
     }
   },
   {
+    "type": "#-}",
+    "named": false
+  },
+  {
     "type": "(",
     "named": false
   },
@@ -4098,12 +4129,20 @@
     "named": false
   },
   {
+    "type": "backend",
+    "named": true
+  },
+  {
     "type": "char",
     "named": true
   },
   {
     "type": "codata",
     "named": false
+  },
+  {
+    "type": "code",
+    "named": true
   },
   {
     "type": "coinductive",
@@ -4219,11 +4258,6 @@
     "named": false
   },
   {
-    "type": "pragma",
-    "named": true,
-    "extra": true
-  },
-  {
     "type": "primitive",
     "named": false
   },
@@ -4309,6 +4343,10 @@
   },
   {
     "type": "{",
+    "named": false
+  },
+  {
+    "type": "{-#",
     "named": false
   },
   {
