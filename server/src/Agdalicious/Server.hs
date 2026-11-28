@@ -32,6 +32,7 @@ import Agdalicious.Manual qualified as Manual
 import Agdalicious.Source qualified as Source
 import Agdalicious.Infoview (InfoviewParams (..), InfoviewResult (..))
 import Agdalicious.Libraries qualified as Libraries
+import Agdalicious.WorkspaceAction qualified as WorkspaceAction
 import Agdalicious.Shadow (Shadow)
 import Agdalicious.Shadow qualified as Shadow
 import Control.Concurrent.Async (Async, async, cancel)
@@ -101,7 +102,7 @@ run = Shadow.with $ \shadow -> do
           defaultOptions
             { optTextDocumentSync = Just syncOptions
             , optCompletionTriggerCharacters = Just ".-"
-            , optExecuteCommandCommands = Just [goalCommandName]
+            , optExecuteCommandCommands = Just [goalCommandName, WorkspaceAction.computeCommandName]
             }
       }
 
@@ -216,6 +217,9 @@ handlers =
           (c, Aeson.Success (Aeson.String u : Aeson.Number g : Aeson.String cmd : rest)) | c == goalCommandName -> do
             -- the editor may have asked for the input (the hole being empty)
             runGoalCommand (Uri u) (round g) cmd (case drop 1 rest of Aeson.String i : _ -> Just i; _ -> Nothing)
+            respond (Right (InR Null))
+          (c, Aeson.Success [Aeson.String u, Aeson.String mode, Aeson.String expr]) | c == WorkspaceAction.computeCommandName -> do
+            runCompute (Uri u) mode expr
             respond (Right (InR Null))
           _ -> respond (Left (TResponseError (InR ErrorCodes_InvalidParams) "unknown command" Nothing))
     , requestHandler SMethod_CompletionItemResolve $ \req respond ->
@@ -472,7 +476,18 @@ codeActions uri cursor ds = do
         , c <- commands
         , let command = Command (CodeAction.menuTitle c) goalCommandName (Just [Aeson.toJSON uri, Aeson.toJSON (goal g), Aeson.toJSON (CodeAction.agdaCommand c), Aeson.toJSON (CodeAction.prompt c), Aeson.toJSON (holeContents (slice (goalFrom g) (goalTo g) rope))])
         ]
-  fmap ((<> (goalActions <> holeActions)) . concat) . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
+      -- evaluating what is selected, outside a hole (in one, the goal's do)
+      computeActions =
+        [ InR (CodeAction (WorkspaceAction.computeTitle c <> " (selection)") Nothing Nothing Nothing Nothing Nothing (Just command) Nothing)
+        | null goalActions
+        , Just from <- [offsetOf (cursor ^. L.start) rope]
+        , Just to <- [offsetOf (cursor ^. L.end) rope]
+        , let expr = T.strip (slice from to rope)
+        , not (T.null expr)
+        , c <- WorkspaceAction.computes
+        , let command = Command (WorkspaceAction.computeTitle c) WorkspaceAction.computeCommandName (Just [Aeson.toJSON uri, Aeson.toJSON (WorkspaceAction.computeMode c), Aeson.toJSON expr])
+        ]
+  fmap ((<> (goalActions <> computeActions <> holeActions)) . concat) . for [d | d <- ds, d ^. L.source == Just "agda"] $ \d -> do
     let suggested = CodeAction.notInScope doc (d ^. L.message) (d ^. L.range)
         imports = filter (("Import " `T.isPrefixOf`) . CodeAction.title) suggested
     found <- case CodeAction.missingName (d ^. L.message) of
@@ -546,6 +561,19 @@ runGoalCommand uri g cmd input = do
         if T.null (CodeAction.holeText h)
           then "Agda did nothing: this command works on what is in the hole. Write it there ({! … !}, see \"Expand ? to {! !}\") and try again"
           else "Agda did nothing with " <> CodeAction.holeText h
+
+-- * Workspace actions
+
+-- | Evaluate an expression in the scope of a document
+-- ("Agdalicious.WorkspaceAction.ComputeToplevel"), and show its normal form.
+runCompute :: Uri -> T.Text -> T.Text -> ServerM ()
+runCompute uri mode expr = do
+  rs <- query uri (WorkspaceAction.computeLine mode expr)
+  sh <- asks shadow
+  let tell kind = sendNotification SMethod_WindowShowMessage . ShowMessageParams kind . Shadow.unshadow sh
+  case WorkspaceAction.computeResult rs of
+    Right nf -> tell MessageType_Info (expr <> " ⟶ " <> nf)
+    Left err -> tell MessageType_Error err
 
 -- | The text in a hole (@{! x !}@: @x@; @?@: nothing).
 holeContents :: T.Text -> T.Text

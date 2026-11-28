@@ -36,6 +36,8 @@ library
     Agdalicious.Server
     Agdalicious.Shadow
     Agdalicious.Source
+    Agdalicious.WorkspaceAction
+    Agdalicious.WorkspaceAction.ComputeToplevel
   build-depends:
     , aeson      >=2.0
     , async

@@ -37,6 +37,40 @@ vim.lsp.commands["agdalicious.goal"] = function(command, ctx)
   end
 end
 
+-- Evaluating an expression in the scope of the document (the server's
+-- runCompute): if there is no expression, ask for it.
+vim.lsp.commands["agdalicious.compute"] = function(command, ctx)
+  local client = vim.lsp.get_client_by_id(ctx.client_id)
+  local uri, mode, expr = unpack(command.arguments)
+  local run = function(e)
+    client:request("workspace/executeCommand", { command = command.command, arguments = { uri, mode, e } }, nil, ctx.bufnr)
+  end
+  if type(expr) == "string" and expr ~= "" then
+    run(expr)
+  else
+    vim.ui.input({ prompt = (command.title or "Evaluate") .. ": " }, function(input)
+      if input ~= nil and input ~= "" then
+        run(input)
+      end
+    end)
+  end
+end
+
+--- Evaluate `expr` in the scope of `buf` (asking for it if nil), in Agda's
+--- ComputeMode `mode` (default "DefaultCompute").
+function M.compute(buf, mode, expr)
+  local client = M.client(buf)
+  if not client then
+    vim.notify("agdalicious: no language server for this buffer", vim.log.levels.WARN)
+    return
+  end
+  vim.lsp.commands["agdalicious.compute"]({
+    title = "Evaluate",
+    command = "agdalicious.compute",
+    arguments = { vim.uri_from_bufnr(buf), mode or "DefaultCompute", expr },
+  }, { client_id = client.id, bufnr = buf })
+end
+
 --- The agdalicious client attached to `buf`, if any.
 function M.client(buf)
   return vim.lsp.get_clients({ bufnr = buf, name = M.name })[1]
